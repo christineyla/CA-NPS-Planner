@@ -8,6 +8,8 @@ from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from app.models import CrowdCalendar, Park, ParkAlert, ParkVisitationForecast
+from app.services.recommendations import get_best_weeks as rank_best_weeks
+from app.services.scoring import is_hidden_gem_week
 
 
 def get_parks(session: Session) -> Sequence[Park]:
@@ -38,7 +40,9 @@ def get_latest_forecast_for_parks(
 ) -> dict[int, ParkVisitationForecast]:
     """Return each park's earliest forecast week for map/list rollups."""
 
-    forecasts = session.scalars(select(ParkVisitationForecast).order_by(ParkVisitationForecast.week_start)).all()
+    forecasts = session.scalars(
+        select(ParkVisitationForecast).order_by(ParkVisitationForecast.week_start)
+    ).all()
     first_by_park: dict[int, ParkVisitationForecast] = {}
     for forecast in forecasts:
         first_by_park.setdefault(forecast.park_id, forecast)
@@ -53,23 +57,19 @@ def get_best_weeks(
 ) -> Sequence[ParkVisitationForecast]:
     """Return top recommended weeks sorted by trip score descending."""
 
-    query = _forecast_base_query(park_id).order_by(
-        ParkVisitationForecast.trip_score.desc(),
-        ParkVisitationForecast.week_start,
-    )
-    return session.scalars(query.limit(limit)).all()
+    forecasts = get_park_forecast(session, park_id)
+    alerts = get_alerts(session, park_id)
+    return rank_best_weeks(forecasts, alerts, limit=limit)
 
 
 def get_hidden_gem_weeks(session: Session, park_id: int) -> Sequence[ParkVisitationForecast]:
     """Return weeks that satisfy hidden gem criteria from product spec."""
 
-    query = (
-        _forecast_base_query(park_id)
-        .where(ParkVisitationForecast.crowd_score < 40)
-        .where(ParkVisitationForecast.weather_score > 60)
-        .order_by(ParkVisitationForecast.trip_score.desc(), ParkVisitationForecast.week_start)
+    forecasts = get_park_forecast(session, park_id)
+    return sorted(
+        [week for week in forecasts if is_hidden_gem_week(week.crowd_score, week.weather_score)],
+        key=lambda row: (-row.trip_score, row.week_start),
     )
-    return session.scalars(query).all()
 
 
 def get_crowd_calendar(session: Session, park_id: int) -> Sequence[CrowdCalendar]:
