@@ -24,6 +24,13 @@ class Park(Base):
     seasonal_access_score: Mapped[float] = mapped_column(Float, nullable=False)
     accessibility_score: Mapped[float] = mapped_column(Float, nullable=False)
 
+    nearest_major_airport: Mapped[str] = mapped_column(String(120), nullable=False)
+    distance_to_nearest_airport_miles: Mapped[float] = mapped_column(Float, nullable=False)
+    nearest_city: Mapped[str] = mapped_column(String(120), nullable=False)
+    distance_from_nearest_city: Mapped[str] = mapped_column(String(120), nullable=False)
+    road_access_description: Mapped[str] = mapped_column(String(280), nullable=False)
+    seasonal_access_description: Mapped[str] = mapped_column(String(280), nullable=False)
+
     visitation_history = relationship(
         "ParkVisitationHistory",
         back_populates="park",

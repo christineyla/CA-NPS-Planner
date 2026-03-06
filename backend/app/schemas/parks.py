@@ -35,10 +35,12 @@ class ParksMapDataItem(BaseModel):
 
 
 class ParkDetail(ParkBase):
-    airport_access_score: float
-    drive_access_score: float
-    road_access_score: float
-    seasonal_access_score: float
+    nearest_major_airport: str
+    distance_to_nearest_airport_miles: float
+    nearest_city: str
+    distance_from_nearest_city: str
+    road_access_description: str
+    seasonal_access_description: str
     accessibility_score: float
 
 
@@ -69,10 +71,12 @@ class CalendarWeek(BaseModel):
 
 
 class AccessibilityResponse(BaseModel):
-    airport_access_score: float
-    drive_access_score: float
-    road_access_score: float
-    seasonal_access_score: float
+    nearest_major_airport: str
+    distance_to_nearest_airport_miles: float
+    nearest_city: str
+    distance_from_nearest_city: str
+    road_access_description: str
+    seasonal_access_description: str
     accessibility_score: float
 
 

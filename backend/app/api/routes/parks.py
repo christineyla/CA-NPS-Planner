@@ -184,10 +184,12 @@ def park_accessibility(park_id: int, session: Session = Depends(get_session)) ->
 
     park = _require_park(session, park_id)
     response = AccessibilityResponse(
-        airport_access_score=park.airport_access_score,
-        drive_access_score=park.drive_access_score,
-        road_access_score=park.road_access_score,
-        seasonal_access_score=park.seasonal_access_score,
+        nearest_major_airport=park.nearest_major_airport,
+        distance_to_nearest_airport_miles=park.distance_to_nearest_airport_miles,
+        nearest_city=park.nearest_city,
+        distance_from_nearest_city=park.distance_from_nearest_city,
+        road_access_description=park.road_access_description,
+        seasonal_access_description=park.seasonal_access_description,
         accessibility_score=park.accessibility_score,
     )
     _set_cache(cache_key, response)

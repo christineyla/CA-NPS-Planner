@@ -12,12 +12,6 @@ interface CaliforniaParkMapProps {
   onSelectPark?: (parkId: number) => void;
 }
 
-interface MapCity {
-  name: string;
-  latitude: number;
-  longitude: number;
-}
-
 type CrowdLevel = ParksMapDataItem["crowd_level"];
 
 type LeafletLatLng = [number, number];
@@ -53,13 +47,6 @@ declare global {
   }
 }
 
-const MAJOR_CITIES: MapCity[] = [
-  { name: "San Francisco", latitude: 37.7749, longitude: -122.4194 },
-  { name: "Los Angeles", latitude: 34.0522, longitude: -118.2437 },
-  { name: "San Diego", latitude: 32.7157, longitude: -117.1611 },
-  { name: "Sacramento", latitude: 38.5816, longitude: -121.4944 },
-  { name: "Fresno", latitude: 36.7378, longitude: -119.7871 },
-];
 
 function getCrowdColor(level: CrowdLevel): string {
   if (level === "low") return "#10b981";
@@ -138,19 +125,6 @@ export function CaliforniaParkMap({ parks, selectedParkId, onSelectPark }: Calif
       }
     });
 
-    MAJOR_CITIES.forEach((city) => {
-      leaflet
-        .circleMarker([city.latitude, city.longitude], {
-          radius: 7,
-          color: "#1e3a8a",
-          weight: 2,
-          fillColor: "#60a5fa",
-          fillOpacity: 0.9,
-        })
-        .bindTooltip(city.name, { permanent: true, direction: "right", offset: [8, 0] })
-        .bindPopup(`${city.name}<br/>Major city`)
-        .addTo(markerLayer);
-    });
   }, [isLeafletReady, onSelectPark, parks, selectedParkId]);
 
   return (
@@ -164,12 +138,12 @@ export function CaliforniaParkMap({ parks, selectedParkId, onSelectPark }: Calif
       />
 
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold text-slate-900">California park crowd map</h2>
+        <h2 className="text-xl font-semibold text-slate-900">California National Park Crowd Score</h2>
         <p className="text-xs text-slate-500">Zoom, pan, and click a park marker to load analytics below.</p>
       </div>
 
       <div className="overflow-hidden rounded-lg border border-slate-200">
-        <div ref={mapElementRef} className="h-[520px] w-full" role="img" aria-label="Interactive map of California parks and major cities" />
+        <div ref={mapElementRef} className="h-[520px] w-full" role="img" aria-label="Interactive map of California national parks" />
       </div>
 
       <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-600">
@@ -178,7 +152,6 @@ export function CaliforniaParkMap({ parks, selectedParkId, onSelectPark }: Calif
         <span className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-full bg-amber-500" />Moderate</span>
         <span className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-full bg-orange-500" />Busy</span>
         <span className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-full bg-rose-600" />Extreme</span>
-        <span className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-full border-2 border-blue-900 bg-blue-400" />Major city</span>
       </div>
 
       {selectedPark ? (

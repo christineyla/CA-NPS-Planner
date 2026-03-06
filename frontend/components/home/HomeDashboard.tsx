@@ -42,6 +42,28 @@ function selectLowestCrowdInThirtyDays(parks: ParkListItem[], forecasts: Forecas
   return winner;
 }
 
+function selectBestWeatherInThirtyDays(parks: ParkListItem[], forecasts: ForecastWeek[][]): WeeklyInsight | null {
+  const thirtyDaysOut = new Date();
+  thirtyDaysOut.setDate(thirtyDaysOut.getDate() + 30);
+
+  let winner: WeeklyInsight | null = null;
+
+  parks.forEach((park, index) => {
+    forecasts[index]?.forEach((week) => {
+      const weekStart = new Date(week.week_start);
+      if (weekStart > thirtyDaysOut) {
+        return;
+      }
+
+      if (winner === null || week.weather_score > winner.week.weather_score) {
+        winner = { park, week };
+      }
+    });
+  });
+
+  return winner;
+}
+
 export function HomeDashboard({ parks, mapData, dashboardData }: HomeDashboardProps) {
   const [selectedParkId, setSelectedParkId] = useState<number>(parks[0]?.id ?? 1);
 
@@ -53,16 +75,13 @@ export function HomeDashboard({ parks, mapData, dashboardData }: HomeDashboardPr
     [parks],
   );
 
-  const hiddenGemRecommendation = useMemo(() => {
-    const hiddenGemCandidates = parks.flatMap((park, index) =>
-      dashboardData[index]?.bestWeeks.hidden_gem_weeks.map((week) => ({ park, week })) ?? [],
-    );
-
-    return hiddenGemCandidates.sort((a, b) => b.week.trip_score - a.week.trip_score)[0];
-  }, [dashboardData, parks]);
-
   const lowestCrowdThirtyDays = useMemo(
     () => selectLowestCrowdInThirtyDays(parks, dashboardData.map((park) => park.forecast)),
+    [dashboardData, parks],
+  );
+
+  const bestWeatherThirtyDays = useMemo(
+    () => selectBestWeatherInThirtyDays(parks, dashboardData.map((park) => park.forecast)),
     [dashboardData, parks],
   );
 
@@ -93,20 +112,6 @@ export function HomeDashboard({ parks, mapData, dashboardData }: HomeDashboardPr
             />
           ) : null}
 
-          {hiddenGemRecommendation ? (
-            <FeaturedInsightCard
-              title="Hidden gem week recommendation"
-              parkName={hiddenGemRecommendation.park.name}
-              parkId={hiddenGemRecommendation.park.id}
-              metricLabel="Recommended week"
-              metricValue={formatDateRange(
-                hiddenGemRecommendation.week.week_start,
-                hiddenGemRecommendation.week.week_end,
-              )}
-              subtext={`Trip score ${formatScore(hiddenGemRecommendation.week.trip_score)} with crowd score ${formatScore(hiddenGemRecommendation.week.crowd_score)}.`}
-            />
-          ) : null}
-
           {lowestCrowdThirtyDays ? (
             <FeaturedInsightCard
               title="Lowest crowd score in next 30 days"
@@ -115,6 +120,17 @@ export function HomeDashboard({ parks, mapData, dashboardData }: HomeDashboardPr
               metricLabel="Crowd score"
               metricValue={formatScore(lowestCrowdThirtyDays.week.crowd_score)}
               subtext={`Week of ${formatDateRange(lowestCrowdThirtyDays.week.week_start, lowestCrowdThirtyDays.week.week_end)} has the lightest projected crowds.`}
+            />
+          ) : null}
+
+          {bestWeatherThirtyDays ? (
+            <FeaturedInsightCard
+              title="Best weather score in next 30 days"
+              parkName={bestWeatherThirtyDays.park.name}
+              parkId={bestWeatherThirtyDays.park.id}
+              metricLabel="Weather score"
+              metricValue={formatScore(bestWeatherThirtyDays.week.weather_score)}
+              subtext={`Week of ${formatDateRange(bestWeatherThirtyDays.week.week_start, bestWeatherThirtyDays.week.week_end)} has the strongest expected weather comfort.`}
             />
           ) : null}
         </div>

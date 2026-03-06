@@ -69,7 +69,14 @@ def test_parks_endpoints_return_seeded_data(seeded_client: TestClient) -> None:
 
     accessibility_response = seeded_client.get(f"/parks/{first_park_id}/accessibility")
     assert accessibility_response.status_code == 200
-    assert "accessibility_score" in accessibility_response.json()
+    accessibility_payload = accessibility_response.json()
+    assert "accessibility_score" in accessibility_payload
+    assert "nearest_major_airport" in accessibility_payload
+    assert "distance_to_nearest_airport_miles" in accessibility_payload
+    assert "nearest_city" in accessibility_payload
+    assert "distance_from_nearest_city" in accessibility_payload
+    assert "road_access_description" in accessibility_payload
+    assert "seasonal_access_description" in accessibility_payload
 
     alerts_response = seeded_client.get(f"/parks/{first_park_id}/alerts")
     assert alerts_response.status_code == 200
