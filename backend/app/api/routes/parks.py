@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 
 from app.db import get_session
@@ -16,6 +19,7 @@ from app.schemas.parks import (
     ParkListItem,
     ParksMapDataItem,
 )
+from app.services.cache import get_cached_value, set_cached_value
 from app.services.park_queries import (
     get_alerts,
     get_best_weeks,
@@ -37,12 +41,24 @@ def _require_park(session: Session, park_id: int):
     return park
 
 
+def _from_cache(key: str) -> Any | None:
+    return get_cached_value(key)
+
+
+def _set_cache(key: str, value: Any) -> None:
+    set_cached_value(key, jsonable_encoder(value))
+
+
 @router.get("", response_model=list[ParkListItem])
 def list_parks(session: Session = Depends(get_session)) -> list[ParkListItem]:
+    cache_key = "parks:list"
+    if cached := _from_cache(cache_key):
+        return cached
+
     parks = get_parks(session)
     latest_forecast = get_latest_forecast_for_parks(session)
 
-    return [
+    response = [
         ParkListItem(
             id=park.id,
             name=park.name,
@@ -56,10 +72,16 @@ def list_parks(session: Session = Depends(get_session)) -> list[ParkListItem]:
         )
         for park in parks
     ]
+    _set_cache(cache_key, response)
+    return response
 
 
 @router.get("/map-data", response_model=list[ParksMapDataItem])
 def parks_map_data(session: Session = Depends(get_session)) -> list[ParksMapDataItem]:
+    cache_key = "parks:map-data"
+    if cached := _from_cache(cache_key):
+        return cached
+
     parks = get_parks(session)
     latest_forecast = get_latest_forecast_for_parks(session)
 
@@ -89,34 +111,57 @@ def parks_map_data(session: Session = Depends(get_session)) -> list[ParksMapData
             )
         )
 
+    _set_cache(cache_key, map_data)
     return map_data
 
 
 @router.get("/{park_id}", response_model=ParkDetail)
 def get_park(park_id: int, session: Session = Depends(get_session)) -> ParkDetail:
-    return _require_park(session, park_id)
+    cache_key = f"parks:{park_id}:detail"
+    if cached := _from_cache(cache_key):
+        return cached
+
+    park = _require_park(session, park_id)
+    _set_cache(cache_key, park)
+    return park
 
 
 @router.get("/{park_id}/forecast", response_model=list[ForecastWeek])
 def park_forecast(park_id: int, session: Session = Depends(get_session)) -> list[ForecastWeek]:
+    cache_key = f"parks:{park_id}:forecast"
+    if cached := _from_cache(cache_key):
+        return cached
+
     _require_park(session, park_id)
-    return list(get_park_forecast(session, park_id))
+    response = list(get_park_forecast(session, park_id))
+    _set_cache(cache_key, response)
+    return response
 
 
 @router.get("/{park_id}/best-weeks", response_model=BestWeeksResponse)
 def park_best_weeks(park_id: int, session: Session = Depends(get_session)) -> BestWeeksResponse:
+    cache_key = f"parks:{park_id}:best-weeks"
+    if cached := _from_cache(cache_key):
+        return cached
+
     _require_park(session, park_id)
-    return BestWeeksResponse(
+    response = BestWeeksResponse(
         top_weeks=list(get_best_weeks(session, park_id, limit=5)),
         hidden_gem_weeks=list(get_hidden_gem_weeks(session, park_id)),
     )
+    _set_cache(cache_key, response)
+    return response
 
 
 @router.get("/{park_id}/calendar", response_model=list[CalendarWeek])
 def park_calendar(park_id: int, session: Session = Depends(get_session)) -> list[CalendarWeek]:
+    cache_key = f"parks:{park_id}:calendar"
+    if cached := _from_cache(cache_key):
+        return cached
+
     _require_park(session, park_id)
     entries = get_crowd_calendar(session, park_id)
-    return [
+    response = [
         CalendarWeek(
             forecast_id=entry.forecast_id,
             week_start=entry.forecast.week_start,
@@ -127,21 +172,35 @@ def park_calendar(park_id: int, session: Session = Depends(get_session)) -> list
         )
         for entry in entries
     ]
+    _set_cache(cache_key, response)
+    return response
 
 
 @router.get("/{park_id}/accessibility", response_model=AccessibilityResponse)
 def park_accessibility(park_id: int, session: Session = Depends(get_session)) -> AccessibilityResponse:
+    cache_key = f"parks:{park_id}:accessibility"
+    if cached := _from_cache(cache_key):
+        return cached
+
     park = _require_park(session, park_id)
-    return AccessibilityResponse(
+    response = AccessibilityResponse(
         airport_access_score=park.airport_access_score,
         drive_access_score=park.drive_access_score,
         road_access_score=park.road_access_score,
         seasonal_access_score=park.seasonal_access_score,
         accessibility_score=park.accessibility_score,
     )
+    _set_cache(cache_key, response)
+    return response
 
 
 @router.get("/{park_id}/alerts", response_model=list[AlertResponse])
 def park_alerts(park_id: int, session: Session = Depends(get_session)) -> list[AlertResponse]:
+    cache_key = f"parks:{park_id}:alerts"
+    if cached := _from_cache(cache_key):
+        return cached
+
     _require_park(session, park_id)
-    return list(get_alerts(session, park_id))
+    response = list(get_alerts(session, park_id))
+    _set_cache(cache_key, response)
+    return response
