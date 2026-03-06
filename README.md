@@ -76,6 +76,14 @@ black --check .
 pytest
 ```
 
+### Seed Mock Backend Data
+
+```bash
+./scripts/seed-backend-db.sh
+```
+
+By default seeding uses `DATABASE_URL` from `backend/.env`; if unset it falls back to a local sqlite file (`backend/local.db`).
+
 ## Notes
 
 - This commit intentionally contains only scaffolding and DX setup.
