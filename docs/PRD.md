@@ -2,9 +2,9 @@
 
 ## Product Requirements Document (PRD)
 
-Version: 1.2
+Version: **1.3**
 Status: In Development
-Target Release: 9 March 2026
+Target Release: **9 March 2026**
 
 ---
 
@@ -28,7 +28,7 @@ The platform converts complex forecasts into simple travel guidance, helping vis
 
 # 2. Parks in Scope
 
-Initial parks supported:
+### Initial parks supported
 
 * Yosemite National Park
 * Joshua Tree National Park
@@ -36,7 +36,7 @@ Initial parks supported:
 * Sequoia National Park
 * Kings Canyon National Park
 
-Future expansion:
+### Future expansion
 
 * Lassen Volcanic National Park
 * Channel Islands National Park
@@ -53,9 +53,9 @@ Traveler / Trip Planner
 
 Typical question:
 
-"When can I visit Yosemite with minimal crowds?"
+> “When can I visit Yosemite with minimal crowds?”
 
-User needs:
+### User needs
 
 * predicted crowd levels
 * recommended visit windows
@@ -68,10 +68,38 @@ User needs:
 
 Forecasts are generated **weekly for the next 26 weeks (6 months).**
 
-Historical NPS data is monthly, so the system uses:
+Because historical NPS visitation data is monthly, the system uses:
 
-1. monthly baseline forecasts
-2. weekly disaggregation
+1. **monthly baseline forecasts**
+2. **weekly disaggregation**
+
+---
+
+## Historical Data Window
+
+The forecasting system trains on the most recent **10 years of historical data**.
+
+### Visitation Data
+
+* Monthly NPS visitation data
+* Approximately **2015–present**
+
+### Weather Data
+
+* Historical temperature and precipitation observations
+* Approximately **2015–present**
+
+### Trend Signals
+
+* Google Trends search interest
+* Social Media Exposure index
+
+### Data Exceptions
+
+Disruption periods such as **pandemic-era visitation (2020–2021)** may be:
+
+* flagged as anomalies
+* downweighted during model training
 
 ---
 
@@ -79,20 +107,28 @@ Historical NPS data is monthly, so the system uses:
 
 The system calculates four primary scores.
 
+---
+
 ## Crowd Score
 
 Range: **0–100**
 
 Calculation:
 
+```
 crowd_score = percentile_rank(predicted_weekly_visits within park history)
+```
 
 Meaning:
 
-0–30 = very low crowds
-31–60 = moderate crowds
-61–80 = busy
-81–100 = extremely crowded
+| Score  | Interpretation    |
+| ------ | ----------------- |
+| 0–30   | Very low crowds   |
+| 31–60  | Moderate crowds   |
+| 61–80  | Busy              |
+| 81–100 | Extremely crowded |
+
+Crowd scores are **relative to each individual park**, not global across parks.
 
 ---
 
@@ -100,25 +136,40 @@ Meaning:
 
 Range: **0–100**
 
+Calculation:
+
+```
 weather_score =
-0.6 × temperature_comfort
+0.6 × temperature_comfort +
+0.4 × precipitation_factor
+```
 
-* 0.4 × precipitation_factor
+### Temperature Comfort
 
-Temperature comfort:
+| Temperature    | Score |
+| -------------- | ----- |
+| 55–75°F        | 100   |
+| 40–55°F        | 75    |
+| 75–85°F        | 70    |
+| <40°F or >90°F | 40    |
 
-55–75°F → 100
-40–55°F → 75
-75–85°F → 70
-<40°F or >90°F → 40
+### Precipitation Factor
 
-Precipitation factor:
+| Chance of precipitation | Score |
+| ----------------------- | ----- |
+| <10%                    | 100   |
+| 10–30%                  | 80    |
+| 30–60%                  | 50    |
+| >60%                    | 20    |
 
-<10% → 100
-10–30% → 80
-30–60% → 50
+### Weather Forecast Strategy
 
-> 60% → 20
+Because long-range weather forecasts are uncertain:
+
+* Short-range forecasts use actual weather prediction data.
+* Longer horizon weeks use **seasonal weather expectations derived from historical averages**.
+
+The weather score therefore reflects **expected comfort conditions rather than exact future weather**.
 
 ---
 
@@ -126,14 +177,17 @@ Precipitation factor:
 
 Range: **0–100**
 
+Calculation:
+
+```
 accessibility_score =
-
-0.4 × airport_access_score
-0.3 × drive_access_score
-0.2 × road_access_score
+0.4 × airport_access_score +
+0.3 × drive_access_score +
+0.2 × road_access_score +
 0.1 × seasonal_access_score
+```
 
-Reference cities:
+### Reference Cities
 
 * San Francisco
 * Los Angeles
@@ -141,7 +195,7 @@ Reference cities:
 * Sacramento
 * Fresno
 
-Reference airports:
+### Reference Airports
 
 * LAX
 * SFO
@@ -157,11 +211,12 @@ Users can click **Accessibility Details** to view the breakdown.
 
 Trip Score represents the overall travel desirability of a week.
 
+```
 trip_score =
-
-0.6 × (100 − crowd_score)
-0.3 × weather_score
+0.6 × (100 − crowd_score) +
+0.3 × weather_score +
 0.1 × accessibility_score
+```
 
 Higher trip score = better week to visit.
 
@@ -174,7 +229,7 @@ For each park the system identifies the **top 5 recommended weeks in the next 26
 Algorithm:
 
 1. calculate trip score for each week
-2. remove weeks with severe alerts
+2. remove weeks with **severe alerts**
 3. rank by trip score
 4. return top 5
 
@@ -184,10 +239,12 @@ Algorithm:
 
 A hidden gem week is defined as:
 
+```
 crowd_score < 40
 weather_score > 60
+```
 
-These weeks offer low crowds with favorable weather.
+These weeks offer **low crowds with favorable weather**.
 
 ---
 
@@ -195,12 +252,14 @@ These weeks offer low crowds with favorable weather.
 
 Each park page includes a **26-week crowd calendar**.
 
-Each week is color coded:
+Weeks are color coded:
 
-Green → low crowds
-Yellow → moderate
-Orange → busy
-Red → extremely crowded
+| Color  | Crowd Level       |
+| ------ | ----------------- |
+| Green  | Low crowds        |
+| Yellow | Moderate          |
+| Orange | Busy              |
+| Red    | Extremely crowded |
 
 Hovering reveals:
 
@@ -217,15 +276,15 @@ The homepage includes:
 
 ### Featured Insight Cards
 
-1. Best park to visit this week
-2. Hidden gem week recommendation
-3. Lowest crowd score in next 30 days
+* Best park to visit this week
+* Hidden gem week recommendation
+* Lowest crowd score in next 30 days
 
 ### Interactive Map
 
 A California map with park markers.
 
-Marker colors represent current week crowd levels.
+Marker colors represent **current week crowd levels**.
 
 ---
 
@@ -239,30 +298,114 @@ The system supports alerts for events such as:
 * road closures
 * extreme heat
 
-Alert severity:
+### Alert Severity
 
-Yellow → caution
-Orange → disruption
-Red → avoid visiting
+| Level  | Meaning        |
+| ------ | -------------- |
+| Yellow | Caution        |
+| Orange | Disruption     |
+| Red    | Avoid visiting |
 
-Red alerts remove a week from recommendations.
+Red alerts **remove affected weeks from recommendations**.
+
+---
+
+## Alert Categories
+
+| Alert Type   | Example Event                    |
+| ------------ | -------------------------------- |
+| Wildfire     | wildfire closure or smoke hazard |
+| Extreme Heat | dangerous heat advisory          |
+| Flooding     | road flooding or storm damage    |
+| Road Closure | highway or access road closure   |
+| Park Closure | park or area temporarily closed  |
 
 ---
 
 # 11. Data Sources
 
-* National Park Service visitation dataset
-* Google Trends
-* weather APIs
-* accessibility metadata
-* manually curated alerts
+The system aggregates data from multiple public sources.
+
+### National Park Service
+
+* historical visitation dataset
+
+### Search Trends
+
+* Google Trends search interest
+
+### Weather
+
+* historical observations
+* short-range weather forecasts
+
+### Accessibility Metadata
+
+* airport proximity
+* drive time estimates
+* seasonal access constraints
+
+### Social Media Exposure Index (SME)
+
+SME captures online popularity signals.
+
+Sources may include:
+
+* Google Trends search frequency
+* social media hashtag volume
+* media mentions
+
+SME values are normalized to a **0–100 scale**.
 
 ---
 
-# 12. Data Tables
+# 12. Forecast Model Architecture
 
-parks
+The forecasting system uses **park-specific models**.
 
+Each park has its own model trained on that park’s historical visitation patterns.
+
+---
+
+## Stage 1 — Time-Series Forecast
+
+A **Prophet model** generates baseline **monthly visitation forecasts** for each park.
+
+This stage captures:
+
+* seasonal visitation cycles
+* long-term visitation trends
+* annual park-specific patterns
+
+---
+
+## Stage 2 — Machine Learning Adjustment
+
+An **XGBoost model** adjusts the baseline forecast using additional signals.
+
+Features include:
+
+* Google Trends search interest
+* Social Media Exposure index
+* weather anomalies
+* holiday proximity
+* lagged visitation
+
+---
+
+## Stage 3 — Weekly Disaggregation
+
+Monthly forecasts are converted to weekly predictions using seasonal allocation factors.
+
+The final output is a **26-week visitation forecast**.
+
+---
+
+# 13. Data Tables
+
+## parks
+
+```
 park_id
 park_name
 latitude
@@ -273,11 +416,13 @@ accessibility_score
 primary_airport
 nearest_city
 avg_annual_visits
+```
 
 ---
 
-park_visitation_history
+## park_visitation_history
 
+```
 park_id
 date
 visits
@@ -286,11 +431,13 @@ precipitation
 google_trends_index
 sme_index
 holiday_flag
+```
 
 ---
 
-park_visitation_forecast
+## park_visitation_forecast
 
+```
 park_id
 week_start_date
 predicted_visits
@@ -298,22 +445,26 @@ crowd_score
 weather_score
 accessibility_score
 trip_score
+```
 
 ---
 
-crowd_calendar
+## crowd_calendar
 
+```
 park_id
 week_start
 crowd_score
 weather_score
 trip_score
 color_code
+```
 
 ---
 
-park_alerts
+## park_alerts
 
+```
 park_id
 alert_type
 severity
@@ -321,19 +472,22 @@ message
 start_date
 end_date
 source
+```
 
 ---
 
-# 13. Non-Functional Requirements
+# 14. Non-Functional Requirements
 
-Page load < 2 seconds
-Cached forecasts
-No personal data collection
+* Page load < **2 seconds**
+* Cached forecast responses
+* No personal data collection
 
 ---
 
-# 14. Out of Scope (V1)
+# 15. Out of Scope (V1)
 
-Mobile app
-Live traffic predictions
-Park ranger dashboards
+* Mobile app
+* Live traffic predictions
+* Real-time parking availability
+* Ranger operations dashboards
+
