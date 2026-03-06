@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { CaliforniaParkMap } from "@/components/home/CaliforniaParkMap";
 import { FeaturedInsightCard } from "@/components/home/FeaturedInsightCard";
@@ -66,6 +66,16 @@ function selectBestWeatherInThirtyDays(parks: ParkListItem[], forecasts: Forecas
 
 export function HomeDashboard({ parks, mapData, dashboardData }: HomeDashboardProps) {
   const [selectedParkId, setSelectedParkId] = useState<number>(parks[0]?.id ?? 1);
+  const analyticsSectionRef = useRef<HTMLElement | null>(null);
+
+  const selectParkAndScroll = (parkId: number) => {
+    setSelectedParkId(parkId);
+
+    analyticsSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
 
   const bestParkThisWeek = useMemo(
     () =>
@@ -88,7 +98,9 @@ export function HomeDashboard({ parks, mapData, dashboardData }: HomeDashboardPr
   const selectedDashboard = dashboardData.find((park) => park.park.id === selectedParkId) ?? dashboardData[0];
 
   return (
-    <main className="mx-auto min-h-screen max-w-6xl space-y-6 px-6 py-10">
+    <main className="min-h-screen">
+      <div className="border-b border-[#C7BFB3] bg-[#F3F1EC]">
+        <div className="mx-auto max-w-6xl space-y-6 px-6 py-10">
       <header className="max-w-3xl space-y-3">
         <h1 className="text-4xl font-bold tracking-tight text-slate-900">
           California National Park Visitation Planner
@@ -100,15 +112,16 @@ export function HomeDashboard({ parks, mapData, dashboardData }: HomeDashboardPr
 
       <section>
         <h2 className="mb-3 text-xl font-semibold text-slate-900">Featured insights</h2>
+        <p className="mb-3 text-sm text-slate-600">Click any insight card to load that park in the analytics section below.</p>
         <div className="grid gap-4 md:grid-cols-3">
           {bestParkThisWeek ? (
             <FeaturedInsightCard
               title="Best park to visit this week"
               parkName={bestParkThisWeek.name}
-              parkId={bestParkThisWeek.id}
               metricLabel="Trip score"
               metricValue={formatScore(bestParkThisWeek.trip_score ?? 0)}
               subtext="Top overall balance of lower crowds, favorable weather, and access this week."
+              onSelectPark={() => selectParkAndScroll(bestParkThisWeek.id)}
             />
           ) : null}
 
@@ -116,10 +129,10 @@ export function HomeDashboard({ parks, mapData, dashboardData }: HomeDashboardPr
             <FeaturedInsightCard
               title="Lowest crowd score in next 30 days"
               parkName={lowestCrowdThirtyDays.park.name}
-              parkId={lowestCrowdThirtyDays.park.id}
               metricLabel="Crowd score"
               metricValue={formatScore(lowestCrowdThirtyDays.week.crowd_score)}
               subtext={`Week of ${formatDateRange(lowestCrowdThirtyDays.week.week_start, lowestCrowdThirtyDays.week.week_end)} has the lightest projected crowds.`}
+              onSelectPark={() => selectParkAndScroll(lowestCrowdThirtyDays.park.id)}
             />
           ) : null}
 
@@ -127,18 +140,23 @@ export function HomeDashboard({ parks, mapData, dashboardData }: HomeDashboardPr
             <FeaturedInsightCard
               title="Best weather score in next 30 days"
               parkName={bestWeatherThirtyDays.park.name}
-              parkId={bestWeatherThirtyDays.park.id}
               metricLabel="Weather score"
               metricValue={formatScore(bestWeatherThirtyDays.week.weather_score)}
               subtext={`Week of ${formatDateRange(bestWeatherThirtyDays.week.week_start, bestWeatherThirtyDays.week.week_end)} has the strongest expected weather comfort.`}
+              onSelectPark={() => selectParkAndScroll(bestWeatherThirtyDays.park.id)}
             />
           ) : null}
         </div>
       </section>
 
       <CaliforniaParkMap parks={mapData} selectedParkId={selectedParkId} onSelectPark={setSelectedParkId} />
+        </div>
+      </div>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="bg-[#E7EFE9]">
+        <div className="mx-auto max-w-6xl space-y-6 px-6 py-10">
+
+      <section ref={analyticsSectionRef} className="rounded-xl border border-[#C7BFB3] bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Selected park analytics</h2>
@@ -147,7 +165,7 @@ export function HomeDashboard({ parks, mapData, dashboardData }: HomeDashboardPr
           <label className="text-sm font-medium text-slate-700">
             Park selector
             <select
-              className="ml-3 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+              className="ml-3 rounded-md border border-[#C7BFB3] bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3F6B4F]"
               value={selectedParkId}
               onChange={(event) => setSelectedParkId(Number(event.target.value))}
             >
@@ -165,13 +183,15 @@ export function HomeDashboard({ parks, mapData, dashboardData }: HomeDashboardPr
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-900">{selectedDashboard.park.name} dashboard</h2>
-            <Link className="text-sm text-emerald-700 hover:text-emerald-900 hover:underline" href={`/parks/${selectedDashboard.park.id}`}>
+            <Link className="text-sm text-[#3F6B4F] hover:text-[#31543f] hover:underline" href={`/parks/${selectedDashboard.park.id}`}>
               Open direct park route
             </Link>
           </div>
           <ParkAnalyticsContent data={selectedDashboard} />
         </section>
       ) : null}
+        </div>
+      </div>
     </main>
   );
 }
