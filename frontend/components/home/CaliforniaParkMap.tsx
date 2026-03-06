@@ -1,3 +1,8 @@
+"use client";
+
+import Script from "next/script";
+import { useEffect, useMemo, useRef, useState } from "react";
+
 import { formatScore } from "@/lib/formatters";
 import { ParksMapDataItem } from "@/types/park-dashboard";
 
@@ -13,12 +18,40 @@ interface MapCity {
   longitude: number;
 }
 
-const MAP_WIDTH = 680;
-const MAP_HEIGHT = 760;
-const LAT_MIN = 32.3;
-const LAT_MAX = 42.2;
-const LNG_MIN = -124.8;
-const LNG_MAX = -113.9;
+type CrowdLevel = ParksMapDataItem["crowd_level"];
+
+type LeafletLatLng = [number, number];
+
+interface LeafletMarker {
+  bindTooltip(content: string, options?: { permanent?: boolean; direction?: "left" | "right" | "top" | "bottom"; offset?: [number, number] }): LeafletMarker;
+  bindPopup(content: string): LeafletMarker;
+  addTo(layer: LeafletLayerGroup): LeafletMarker;
+  on(eventName: "click", handler: () => void): LeafletMarker;
+  setStyle?(options: { color?: string; fillColor?: string; fillOpacity?: number; weight?: number; radius?: number }): void;
+}
+
+interface LeafletLayerGroup {
+  addTo(map: LeafletMap): LeafletLayerGroup;
+  clearLayers(): void;
+}
+
+interface LeafletMap {
+  setView(center: LeafletLatLng, zoom: number): LeafletMap;
+  remove(): void;
+}
+
+interface LeafletNamespace {
+  map(element: HTMLDivElement, options?: { zoomControl?: boolean }): LeafletMap;
+  tileLayer(urlTemplate: string, options: { attribution: string; maxZoom?: number; minZoom?: number }): { addTo(map: LeafletMap): void };
+  layerGroup(): LeafletLayerGroup;
+  circleMarker(latLng: LeafletLatLng, options: { radius: number; color: string; weight: number; fillColor: string; fillOpacity: number }): LeafletMarker;
+}
+
+declare global {
+  interface Window {
+    L?: LeafletNamespace;
+  }
+}
 
 const MAJOR_CITIES: MapCity[] = [
   { name: "San Francisco", latitude: 37.7749, longitude: -122.4194 },
@@ -28,92 +61,131 @@ const MAJOR_CITIES: MapCity[] = [
   { name: "Fresno", latitude: 36.7378, longitude: -119.7871 },
 ];
 
-function projectToMap(latitude: number, longitude: number) {
-  const x = ((longitude - LNG_MIN) / (LNG_MAX - LNG_MIN)) * MAP_WIDTH;
-  const y = ((LAT_MAX - latitude) / (LAT_MAX - LAT_MIN)) * MAP_HEIGHT;
-
-  return {
-    x: Math.min(Math.max(20, x), MAP_WIDTH - 20),
-    y: Math.min(Math.max(20, y), MAP_HEIGHT - 20),
-  };
-}
-
-function markerClass(level: ParksMapDataItem["crowd_level"]): string {
-  if (level === "low") return "fill-emerald-500";
-  if (level === "moderate") return "fill-amber-400";
-  if (level === "busy") return "fill-orange-500";
-  if (level === "extreme") return "fill-rose-600";
-  return "fill-slate-500";
+function getCrowdColor(level: CrowdLevel): string {
+  if (level === "low") return "#10b981";
+  if (level === "moderate") return "#f59e0b";
+  if (level === "busy") return "#f97316";
+  if (level === "extreme") return "#e11d48";
+  return "#64748b";
 }
 
 export function CaliforniaParkMap({ parks, selectedParkId, onSelectPark }: CaliforniaParkMapProps) {
+  const mapElementRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<LeafletMap | null>(null);
+  const markerLayerRef = useRef<LeafletLayerGroup | null>(null);
+  const [isLeafletReady, setIsLeafletReady] = useState(false);
+
+  const selectedPark = useMemo(() => parks.find((park) => park.park_id === selectedParkId), [parks, selectedParkId]);
+
+  useEffect(() => {
+    if (!isLeafletReady || !mapElementRef.current || mapRef.current !== null || !window.L) {
+      return;
+    }
+
+    const map = window.L.map(mapElementRef.current, { zoomControl: true }).setView([36.7783, -119.4179], 6);
+
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 18,
+      minZoom: 5,
+    }).addTo(map);
+
+    const markerLayer = window.L.layerGroup().addTo(map);
+
+    mapRef.current = map;
+    markerLayerRef.current = markerLayer;
+
+    return () => {
+      map.remove();
+      mapRef.current = null;
+      markerLayerRef.current = null;
+    };
+  }, [isLeafletReady]);
+
+  useEffect(() => {
+    if (!isLeafletReady || !window.L || !markerLayerRef.current || !mapRef.current) {
+      return;
+    }
+
+    markerLayerRef.current.clearLayers();
+
+    const markerLayer = markerLayerRef.current;
+    const leaflet = window.L;
+    if (!leaflet) {
+      return;
+    }
+
+    parks.forEach((park) => {
+      const scoreLabel = park.crowd_score === null ? "N/A" : formatScore(park.crowd_score);
+      const isSelected = park.park_id === selectedParkId;
+      const radius = isSelected ? 12 : 9;
+
+      const marker = leaflet
+        .circleMarker([park.latitude, park.longitude], {
+          radius,
+          color: "#ffffff",
+          weight: 2,
+          fillColor: getCrowdColor(park.crowd_level),
+          fillOpacity: 0.95,
+        })
+        .bindTooltip(park.name.replace(" National Park", ""), { permanent: true, direction: "right", offset: [10, 0] })
+        .bindPopup(`${park.name}<br/>Crowd score: ${scoreLabel}`)
+        .addTo(markerLayer)
+        .on("click", () => onSelectPark?.(park.park_id));
+
+      if (isSelected && marker.setStyle) {
+        marker.setStyle({ color: "#0f766e", weight: 3 });
+      }
+    });
+
+    MAJOR_CITIES.forEach((city) => {
+      leaflet
+        .circleMarker([city.latitude, city.longitude], {
+          radius: 7,
+          color: "#1e3a8a",
+          weight: 2,
+          fillColor: "#60a5fa",
+          fillOpacity: 0.9,
+        })
+        .bindTooltip(city.name, { permanent: true, direction: "right", offset: [8, 0] })
+        .bindPopup(`${city.name}<br/>Major city`)
+        .addTo(markerLayer);
+    });
+  }, [isLeafletReady, onSelectPark, parks, selectedParkId]);
+
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <Script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" strategy="afterInteractive" onLoad={() => setIsLeafletReady(true)} />
+      <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossOrigin=""
+      />
+
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="text-xl font-semibold text-slate-900">California park crowd map</h2>
-        <p className="text-xs text-slate-500">Marker color = crowd level. Click a park marker to load analytics below.</p>
+        <p className="text-xs text-slate-500">Zoom, pan, and click a park marker to load analytics below.</p>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-gradient-to-b from-sky-100 to-sky-50 p-3">
-        <svg viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} className="h-[520px] w-full" role="img" aria-label="Map of California parks and major cities">
-          <rect x="0" y="0" width={MAP_WIDTH} height={MAP_HEIGHT} className="fill-sky-100" />
-          <path
-            d="M198 28 L223 24 L247 88 L317 150 L289 242 L332 356 L292 434 L338 532 L302 613 L325 694 L307 744 L224 742 L176 704 L146 626 L101 523 L66 414 L88 324 L74 236 L109 188 L136 136 L165 89 Z"
-            className="fill-slate-100 stroke-slate-500"
-            strokeWidth="4"
-          />
-
-          {MAJOR_CITIES.map((city) => {
-            const point = projectToMap(city.latitude, city.longitude);
-            return (
-              <g key={city.name}>
-                <circle cx={point.x} cy={point.y} r={5} className="fill-slate-500/80 stroke-white" strokeWidth="2" />
-                <text x={point.x + 10} y={point.y + 5} className="fill-slate-700 text-[14px] font-semibold">
-                  {city.name}
-                </text>
-              </g>
-            );
-          })}
-
-          {parks.map((park) => {
-            const point = projectToMap(park.latitude, park.longitude);
-            const scoreLabel = park.crowd_score === null ? "N/A" : formatScore(park.crowd_score);
-            const isSelected = selectedParkId === park.park_id;
-
-            return (
-              <g
-                key={park.park_id}
-                className="cursor-pointer"
-                onClick={() => onSelectPark?.(park.park_id)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    onSelectPark?.(park.park_id);
-                  }
-                }}
-                aria-label={`Select ${park.name}`}
-              >
-                <title>{`${park.name} - Crowd ${scoreLabel}`}</title>
-                {isSelected ? (
-                  <circle cx={point.x} cy={point.y} r={15} className="fill-emerald-100/90 stroke-emerald-500" strokeWidth="2" />
-                ) : null}
-                <circle
-                  cx={point.x}
-                  cy={point.y}
-                  r={10}
-                  className={`${markerClass(park.crowd_level)} stroke-white`}
-                  strokeWidth="2"
-                />
-                <text x={point.x + 14} y={point.y + 4} className="fill-slate-900 text-[13px] font-bold">
-                  {park.name.replace(" National Park", "")}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
+      <div className="overflow-hidden rounded-lg border border-slate-200">
+        <div ref={mapElementRef} className="h-[520px] w-full" role="img" aria-label="Interactive map of California parks and major cities" />
       </div>
+
+      <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-600">
+        <span className="font-semibold text-slate-700">Legend:</span>
+        <span className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-full bg-emerald-500" />Low</span>
+        <span className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-full bg-amber-500" />Moderate</span>
+        <span className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-full bg-orange-500" />Busy</span>
+        <span className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-full bg-rose-600" />Extreme</span>
+        <span className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-full border-2 border-blue-900 bg-blue-400" />Major city</span>
+      </div>
+
+      {selectedPark ? (
+        <p className="mt-3 text-sm text-slate-600">
+          Selected park: <span className="font-semibold text-slate-900">{selectedPark.name}</span>
+        </p>
+      ) : null}
     </section>
   );
 }
