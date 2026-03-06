@@ -188,12 +188,6 @@ export function HomeDashboard({ parks, mapData, dashboardData }: HomeDashboardPr
             <section className="space-y-3">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-slate-900">{selectedDashboard.park.name} dashboard</h2>
-                <Link
-                  className="text-sm text-[#3F6B4F] hover:text-[#31543f] hover:underline"
-                  href={`/parks/${selectedDashboard.park.id}`}
-                >
-                  Open direct park route
-                </Link>
               </div>
               <ParkAnalyticsContent data={selectedDashboard} />
             </section>
