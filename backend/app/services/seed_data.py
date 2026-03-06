@@ -41,34 +41,95 @@ class ParkSeedConfig:
 
 PARK_CONFIGS: tuple[ParkSeedConfig, ...] = (
     ParkSeedConfig(
-        "Yosemite National Park", "yosemite", 37.8651, -119.5383, 78, 82, 70, 68,
-        "Fresno Yosemite International Airport (FAT)", 95, "Fresno, CA", "65 miles / ~1 hr 30 min drive",
+        "Yosemite National Park",
+        "yosemite",
+        37.8651,
+        -119.5383,
+        78,
+        82,
+        70,
+        68,
+        "Fresno Yosemite International Airport (FAT)",
+        95,
+        "Fresno, CA",
+        "65 miles / ~1 hr 30 min drive",
         "Primary access via CA-41, CA-120, and CA-140; winding mountain roads can slow travel.",
-        "Tioga Road and Glacier Point Road typically close seasonally due to snow.", 82000,
+        "Tioga Road and Glacier Point Road typically close seasonally due to snow.",
+        82000,
     ),
     ParkSeedConfig(
-        "Joshua Tree National Park", "joshua-tree", 33.8734, -115.9010, 74, 80, 76, 84,
-        "Palm Springs International Airport (PSP)", 40, "Palm Springs, CA", "38 miles / ~50 min drive",
+        "Joshua Tree National Park",
+        "joshua-tree",
+        33.8734,
+        -115.9010,
+        74,
+        80,
+        76,
+        84,
+        "Palm Springs International Airport (PSP)",
+        40,
+        "Palm Springs, CA",
+        "38 miles / ~50 min drive",
         "Paved highway access from multiple entrances with straightforward desert driving routes.",
-        "Generally open year-round, though extreme summer heat can limit comfortable daytime access.", 58000,
+        (
+            "Generally open year-round, though extreme summer heat can limit "
+            "comfortable daytime access."
+        ),
+        58000,
     ),
     ParkSeedConfig(
-        "Death Valley National Park", "death-valley", 36.5054, -117.0794, 66, 73, 65, 58,
-        "Harry Reid International Airport (LAS)", 120, "Pahrump, NV", "62 miles / ~1 hr 20 min drive",
+        "Death Valley National Park",
+        "death-valley",
+        36.5054,
+        -117.0794,
+        66,
+        73,
+        65,
+        58,
+        "Harry Reid International Airport (LAS)",
+        120,
+        "Pahrump, NV",
+        "62 miles / ~1 hr 20 min drive",
         "Long approach roads with limited services; fuel and water planning is essential.",
-        "Year-round access with periodic closures after flooding and hazardous summer heat windows.", 39000,
+        (
+            "Year-round access with periodic closures after flooding and hazardous "
+            "summer heat windows."
+        ),
+        39000,
     ),
     ParkSeedConfig(
-        "Sequoia National Park", "sequoia", 36.4864, -118.5658, 69, 77, 72, 70,
-        "Fresno Yosemite International Airport (FAT)", 84, "Visalia, CA", "36 miles / ~1 hr drive",
+        "Sequoia National Park",
+        "sequoia",
+        36.4864,
+        -118.5658,
+        69,
+        77,
+        72,
+        70,
+        "Fresno Yosemite International Airport (FAT)",
+        84,
+        "Visalia, CA",
+        "36 miles / ~1 hr drive",
         "Access roads climb rapidly in elevation with frequent curves and slower mountain travel.",
-        "Higher-elevation roads may require chains or temporary winter restrictions.", 46000,
+        "Higher-elevation roads may require chains or temporary winter restrictions.",
+        46000,
     ),
     ParkSeedConfig(
-        "Kings Canyon National Park", "kings-canyon", 36.8879, -118.5551, 63, 71, 68, 66,
-        "Fresno Yosemite International Airport (FAT)", 85, "Fresno, CA", "82 miles / ~1 hr 50 min drive",
+        "Kings Canyon National Park",
+        "kings-canyon",
+        36.8879,
+        -118.5551,
+        63,
+        71,
+        68,
+        66,
+        "Fresno Yosemite International Airport (FAT)",
+        85,
+        "Fresno, CA",
+        "82 miles / ~1 hr 50 min drive",
         "Single primary approach corridor into canyon areas with limited alternate routing.",
-        "Cedar Grove and some high-country roads have predictable seasonal closures.", 35000,
+        "Cedar Grove and some high-country roads have predictable seasonal closures.",
+        35000,
     ),
 )
 
@@ -89,7 +150,10 @@ def _park_alerts(park: Park, seed_start: date) -> list[ParkAlert]:
             {
                 "title": "El Portal Road rockslide closure",
                 "severity": "red",
-                "message": "A major rockslide has closed a key Valley approach route. Expect detours and extended drive times.",
+                "message": (
+                    "A major rockslide has closed a key Valley approach route. "
+                    "Expect detours and extended drive times."
+                ),
                 "start_offset_days": 7,
                 "end_offset_days": 28,
                 "is_active": True,
@@ -97,7 +161,10 @@ def _park_alerts(park: Park, seed_start: date) -> list[ParkAlert]:
             {
                 "title": "Merced River flooding watch",
                 "severity": "orange",
-                "message": "High runoff may temporarily close low-elevation trails, shuttle stops, and river access points.",
+                "message": (
+                    "High runoff may temporarily close low-elevation trails, "
+                    "shuttle stops, and river access points."
+                ),
                 "start_offset_days": 35,
                 "end_offset_days": 49,
                 "is_active": True,
@@ -105,7 +172,10 @@ def _park_alerts(park: Park, seed_start: date) -> list[ParkAlert]:
             {
                 "title": "Half Dome cables weather caution",
                 "severity": "yellow",
-                "message": "Afternoon storms are expected; rangers advise early starts and flexible summit plans.",
+                "message": (
+                    "Afternoon storms are expected; rangers advise early starts "
+                    "and flexible summit plans."
+                ),
                 "start_offset_days": 56,
                 "end_offset_days": 70,
                 "is_active": True,
@@ -115,7 +185,10 @@ def _park_alerts(park: Park, seed_start: date) -> list[ParkAlert]:
             {
                 "title": "Extreme heat advisory",
                 "severity": "red",
-                "message": "Daytime highs above 110°F create dangerous exposure risk; avoid midday hiking and climbing.",
+                "message": (
+                    "Daytime highs above 110°F create dangerous exposure risk; "
+                    "avoid midday hiking and climbing."
+                ),
                 "start_offset_days": 14,
                 "end_offset_days": 35,
                 "is_active": True,
@@ -123,7 +196,10 @@ def _park_alerts(park: Park, seed_start: date) -> list[ParkAlert]:
             {
                 "title": "Cottonwood area flash flooding",
                 "severity": "orange",
-                "message": "Monsoonal storms may produce washouts and short-notice closures on backcountry roads.",
+                "message": (
+                    "Monsoonal storms may produce washouts and short-notice "
+                    "closures on backcountry roads."
+                ),
                 "start_offset_days": 42,
                 "end_offset_days": 56,
                 "is_active": True,
@@ -131,7 +207,10 @@ def _park_alerts(park: Park, seed_start: date) -> list[ParkAlert]:
             {
                 "title": "Ryan Campground water system repairs",
                 "severity": "yellow",
-                "message": "Intermittent utility interruptions are expected while maintenance crews complete repairs.",
+                "message": (
+                    "Intermittent utility interruptions are expected while "
+                    "maintenance crews complete repairs."
+                ),
                 "start_offset_days": 0,
                 "end_offset_days": 21,
                 "is_active": True,
@@ -141,7 +220,10 @@ def _park_alerts(park: Park, seed_start: date) -> list[ParkAlert]:
             {
                 "title": "Heat danger and area closure",
                 "severity": "red",
-                "message": "Sections of exposed salt pan viewpoints are closed during prolonged extreme heat conditions.",
+                "message": (
+                    "Sections of exposed salt pan viewpoints are closed during "
+                    "prolonged extreme heat conditions."
+                ),
                 "start_offset_days": 0,
                 "end_offset_days": 42,
                 "is_active": True,
@@ -149,7 +231,9 @@ def _park_alerts(park: Park, seed_start: date) -> list[ParkAlert]:
             {
                 "title": "CA-190 storm damage major closure",
                 "severity": "red",
-                "message": "A major road segment remains closed for reconstruction after flood damage.",
+                "message": (
+                    "A major road segment remains closed for reconstruction " "after flood damage."
+                ),
                 "start_offset_days": 49,
                 "end_offset_days": 77,
                 "is_active": True,
@@ -157,7 +241,10 @@ def _park_alerts(park: Park, seed_start: date) -> list[ParkAlert]:
             {
                 "title": "Windblown dust visibility caution",
                 "severity": "yellow",
-                "message": "Strong crosswinds can reduce visibility and affect high-profile vehicles on open roads.",
+                "message": (
+                    "Strong crosswinds can reduce visibility and affect "
+                    "high-profile vehicles on open roads."
+                ),
                 "start_offset_days": 21,
                 "end_offset_days": 35,
                 "is_active": True,
@@ -167,7 +254,10 @@ def _park_alerts(park: Park, seed_start: date) -> list[ParkAlert]:
             {
                 "title": "Generals Highway wildfire operations",
                 "severity": "orange",
-                "message": "Active wildfire response may trigger rolling one-lane controls and smoke impacts.",
+                "message": (
+                    "Active wildfire response may trigger rolling one-lane "
+                    "controls and smoke impacts."
+                ),
                 "start_offset_days": 7,
                 "end_offset_days": 30,
                 "is_active": True,
@@ -175,7 +265,10 @@ def _park_alerts(park: Park, seed_start: date) -> list[ParkAlert]:
             {
                 "title": "Foothills prescribed burn advisory",
                 "severity": "yellow",
-                "message": "Smoke-sensitive visitors should plan around scheduled burn windows and shifting wind patterns.",
+                "message": (
+                    "Smoke-sensitive visitors should plan around scheduled "
+                    "burn windows and shifting wind patterns."
+                ),
                 "start_offset_days": 31,
                 "end_offset_days": 45,
                 "is_active": True,
@@ -183,7 +276,9 @@ def _park_alerts(park: Park, seed_start: date) -> list[ParkAlert]:
             {
                 "title": "Mineral King Road overnight closure",
                 "severity": "orange",
-                "message": "Nighttime paving operations close access from 8 PM to 6 AM on weekdays.",
+                "message": (
+                    "Nighttime paving operations close access from 8 PM to 6 AM " "on weekdays."
+                ),
                 "start_offset_days": 46,
                 "end_offset_days": 67,
                 "is_active": True,
@@ -193,7 +288,10 @@ def _park_alerts(park: Park, seed_start: date) -> list[ParkAlert]:
             {
                 "title": "Cedar Grove area closure",
                 "severity": "red",
-                "message": "Rockfall risk has closed Cedar Grove roads and trails until slope stabilization is complete.",
+                "message": (
+                    "Rockfall risk has closed Cedar Grove roads and trails until "
+                    "slope stabilization is complete."
+                ),
                 "start_offset_days": 14,
                 "end_offset_days": 49,
                 "is_active": True,
@@ -201,7 +299,10 @@ def _park_alerts(park: Park, seed_start: date) -> list[ParkAlert]:
             {
                 "title": "South Fork Kings River flooding",
                 "severity": "orange",
-                "message": "Localized flooding may impact low-water crossings and selected canyon trailheads.",
+                "message": (
+                    "Localized flooding may impact low-water crossings and "
+                    "selected canyon trailheads."
+                ),
                 "start_offset_days": 56,
                 "end_offset_days": 70,
                 "is_active": True,
@@ -209,7 +310,10 @@ def _park_alerts(park: Park, seed_start: date) -> list[ParkAlert]:
             {
                 "title": "High-elevation weather caution",
                 "severity": "yellow",
-                "message": "Late-season snow and cold nights may require traction devices on selected routes.",
+                "message": (
+                    "Late-season snow and cold nights may require traction "
+                    "devices on selected routes."
+                ),
                 "start_offset_days": 0,
                 "end_offset_days": 18,
                 "is_active": True,
