@@ -31,3 +31,30 @@ def test_seed_database_creates_required_mock_data() -> None:
     assert len(history) == len(PARK_CONFIGS) * 12
     assert len(calendar) == len(forecasts)
     assert len(alerts) >= len(PARK_CONFIGS)
+
+
+def test_seed_database_alerts_cover_prd_disruptions() -> None:
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
+    Base.metadata.create_all(bind=engine)
+
+    with Session(engine) as session:
+        seed_database(session)
+
+    with Session(engine) as session:
+        alerts = session.scalars(select(ParkAlert)).all()
+
+    assert len(alerts) == len(PARK_CONFIGS) * 3
+
+    severities = {alert.severity.lower() for alert in alerts}
+    assert {"yellow", "orange", "red"}.issubset(severities)
+
+    alert_text = " ".join(f"{alert.title} {alert.message}".lower() for alert in alerts)
+    for keyword in ["wildfire", "major road", "flood", "heat", "closure"]:
+        assert keyword in alert_text
+
+    assert any(alert.is_active and alert.severity.lower() == "red" for alert in alerts)

@@ -1,10 +1,9 @@
 import { AlertResponse } from "@/types/park-dashboard";
 
 const severityColor: Record<AlertResponse["severity"], string> = {
-  low: "bg-blue-50 border-blue-200 text-blue-800",
-  moderate: "bg-amber-50 border-amber-200 text-amber-900",
-  high: "bg-orange-50 border-orange-200 text-orange-900",
-  severe: "bg-red-50 border-red-200 text-red-900",
+  yellow: "bg-yellow-50 border-yellow-300 text-yellow-900",
+  orange: "bg-orange-50 border-orange-200 text-orange-900",
+  red: "bg-red-50 border-red-200 text-red-900",
 };
 
 interface AlertBannerProps {
@@ -21,7 +20,7 @@ export function AlertBanner({ alerts }: AlertBannerProps) {
 
   return (
     <div className={`rounded-xl border p-4 shadow-sm ${severityColor[primaryAlert.severity]}`}>
-      <p className="text-xs font-semibold uppercase tracking-wide">{primaryAlert.severity} Alert</p>
+      <p className="text-xs font-semibold uppercase tracking-wide">{`${primaryAlert.severity.toUpperCase()} Alert`}</p>
       <h2 className="mt-1 text-lg font-semibold">{primaryAlert.title}</h2>
       <p className="mt-1 text-sm">{primaryAlert.message}</p>
     </div>

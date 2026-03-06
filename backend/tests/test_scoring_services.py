@@ -83,21 +83,21 @@ def test_hidden_gem_threshold() -> None:
 
 def test_severe_alert_detection_and_overlap() -> None:
     forecast = _forecast(week_offset=1, trip_score=70)
-    severe = _alert("severe", forecast.week_start, forecast.week_end)
-    low = _alert("low", forecast.week_start, forecast.week_end)
+    red = _alert("red", forecast.week_start, forecast.week_end)
+    orange = _alert("orange", forecast.week_start, forecast.week_end)
 
-    assert is_severe_alert(severe)
-    assert not is_severe_alert(low)
-    assert forecast_overlaps_alert(forecast, severe)
+    assert is_severe_alert(red)
+    assert not is_severe_alert(orange)
+    assert forecast_overlaps_alert(forecast, red)
 
 
 def test_week_suppression_only_for_active_severe_overlaps() -> None:
     forecast = _forecast(week_offset=0, trip_score=78)
-    severe_inactive = _alert("severe", forecast.week_start, forecast.week_end, is_active=False)
+    severe_inactive = _alert("red", forecast.week_start, forecast.week_end, is_active=False)
     severe_non_overlap = _alert(
-        "critical", forecast.week_end + timedelta(days=2), forecast.week_end + timedelta(days=10)
+        "red", forecast.week_end + timedelta(days=2), forecast.week_end + timedelta(days=10)
     )
-    severe_overlap = _alert("critical", forecast.week_start, forecast.week_end)
+    severe_overlap = _alert("red", forecast.week_start, forecast.week_end)
 
     assert not should_suppress_week(forecast, [severe_inactive, severe_non_overlap])
     assert should_suppress_week(forecast, [severe_overlap])
@@ -108,8 +108,8 @@ def test_best_week_ranking_applies_suppression_rules() -> None:
     f1 = _forecast(week_offset=1, trip_score=85)
     f2 = _forecast(week_offset=2, trip_score=88)
     alerts = [
-        _alert("severe", f0.week_start, f0.week_end),
-        _alert("moderate", f1.week_start, f1.week_end),
+        _alert("red", f0.week_start, f0.week_end),
+        _alert("orange", f1.week_start, f1.week_end),
     ]
 
     best = get_best_weeks([f0, f1, f2], alerts, limit=2)
