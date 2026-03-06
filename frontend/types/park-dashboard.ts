@@ -1,3 +1,25 @@
+export interface ParkListItem {
+  id: number;
+  name: string;
+  slug: string;
+  state: string;
+  latitude: number;
+  longitude: number;
+  accessibility_score: number;
+  crowd_score: number | null;
+  trip_score: number | null;
+}
+
+export interface ParksMapDataItem {
+  park_id: number;
+  name: string;
+  slug: string;
+  latitude: number;
+  longitude: number;
+  crowd_score: number | null;
+  crowd_level: "low" | "moderate" | "busy" | "extreme" | null;
+}
+
 export interface ParkDetail {
   id: number;
   name: string;
