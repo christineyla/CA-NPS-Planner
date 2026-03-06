@@ -1,5 +1,13 @@
 """Service layer exports."""
 
+from app.services.forecasting import (
+    BaselineProphetForecaster,
+    FeatureEngineer,
+    ForecastRunner,
+    WeeklyDisaggregator,
+    XGBoostAdjustmentLayer,
+)
+
 from app.services.recommendations import (
     SEVERE_ALERT_LEVELS,
     forecast_overlaps_alert,
@@ -17,13 +25,18 @@ from app.services.scoring import (
 from app.services.seed_data import FORECAST_WEEKS, PARK_CONFIGS, seed_database
 
 __all__ = [
+    "BaselineProphetForecaster",
     "FORECAST_WEEKS",
+    "FeatureEngineer",
+    "ForecastRunner",
     "PARK_CONFIGS",
     "SEVERE_ALERT_LEVELS",
     "calculate_accessibility_score",
     "calculate_crowd_score",
     "calculate_trip_score",
     "calculate_weather_score",
+    "WeeklyDisaggregator",
+    "XGBoostAdjustmentLayer",
     "forecast_overlaps_alert",
     "get_best_weeks",
     "is_hidden_gem_week",
