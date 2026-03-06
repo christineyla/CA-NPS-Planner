@@ -1,8 +1,8 @@
 """ORM model for historical park visitation observations."""
 
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import Date, ForeignKey, Integer, UniqueConstraint
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -18,5 +18,8 @@ class ParkVisitationHistory(Base):
     park_id: Mapped[int] = mapped_column(ForeignKey("parks.id", ondelete="CASCADE"), nullable=False)
     observation_month: Mapped[date] = mapped_column(Date, nullable=False)
     visits: Mapped[int] = mapped_column(Integer, nullable=False)
+    data_source: Mapped[str] = mapped_column(String(140), nullable=False)
+    source_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    ingested_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     park = relationship("Park", back_populates="visitation_history")
