@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
@@ -79,3 +80,25 @@ def test_park_not_found_returns_404(seeded_client: TestClient) -> None:
     response = seeded_client.get("/parks/99999")
 
     assert response.status_code == 404
+
+
+def test_best_weeks_exclude_severe_alert_windows(seeded_client: TestClient) -> None:
+    parks_payload = seeded_client.get("/parks").json()
+    first_park_id = parks_payload[0]["id"]
+
+    best_weeks_payload = seeded_client.get(f"/parks/{first_park_id}/best-weeks").json()
+    alerts_payload = seeded_client.get(f"/parks/{first_park_id}/alerts").json()
+    severe_alerts = [
+        alert
+        for alert in alerts_payload
+        if alert["is_active"] and alert["severity"].lower() in {"severe", "critical"}
+    ]
+
+    for week in best_weeks_payload["top_weeks"]:
+        week_start = date.fromisoformat(week["week_start"])
+        week_end = date.fromisoformat(week["week_end"])
+        assert not any(
+            week_start <= date.fromisoformat(alert["ends_on"])
+            and week_end >= date.fromisoformat(alert["starts_on"])
+            for alert in severe_alerts
+        )
