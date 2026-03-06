@@ -27,10 +27,12 @@ export interface ParkDetail {
   state: string;
   latitude: number;
   longitude: number;
-  airport_access_score: number;
-  drive_access_score: number;
-  road_access_score: number;
-  seasonal_access_score: number;
+  nearest_major_airport: string;
+  distance_to_nearest_airport_miles: number;
+  nearest_city: string;
+  distance_from_nearest_city: string;
+  road_access_description: string;
+  seasonal_access_description: string;
   accessibility_score: number;
 }
 
@@ -69,10 +71,12 @@ export interface AlertResponse {
 }
 
 export interface AccessibilityResponse {
-  airport_access_score: number;
-  drive_access_score: number;
-  road_access_score: number;
-  seasonal_access_score: number;
+  nearest_major_airport: string;
+  distance_to_nearest_airport_miles: number;
+  nearest_city: string;
+  distance_from_nearest_city: string;
+  road_access_description: string;
+  seasonal_access_description: string;
   accessibility_score: number;
 }
 

@@ -30,20 +30,45 @@ class ParkSeedConfig:
     drive_access_score: float
     road_access_score: float
     seasonal_access_score: float
+    nearest_major_airport: str
+    distance_to_nearest_airport_miles: float
+    nearest_city: str
+    distance_from_nearest_city: str
+    road_access_description: str
+    seasonal_access_description: str
     baseline_visits: int
 
 
 PARK_CONFIGS: tuple[ParkSeedConfig, ...] = (
-    ParkSeedConfig("Yosemite National Park", "yosemite", 37.8651, -119.5383, 78, 82, 70, 68, 82000),
     ParkSeedConfig(
-        "Joshua Tree National Park", "joshua-tree", 33.8734, -115.9010, 74, 80, 76, 84, 58000
+        "Yosemite National Park", "yosemite", 37.8651, -119.5383, 78, 82, 70, 68,
+        "Fresno Yosemite International Airport (FAT)", 95, "Fresno, CA", "65 miles / ~1 hr 30 min drive",
+        "Primary access via CA-41, CA-120, and CA-140; winding mountain roads can slow travel.",
+        "Tioga Road and Glacier Point Road typically close seasonally due to snow.", 82000,
     ),
     ParkSeedConfig(
-        "Death Valley National Park", "death-valley", 36.5054, -117.0794, 66, 73, 65, 58, 39000
+        "Joshua Tree National Park", "joshua-tree", 33.8734, -115.9010, 74, 80, 76, 84,
+        "Palm Springs International Airport (PSP)", 40, "Palm Springs, CA", "38 miles / ~50 min drive",
+        "Paved highway access from multiple entrances with straightforward desert driving routes.",
+        "Generally open year-round, though extreme summer heat can limit comfortable daytime access.", 58000,
     ),
-    ParkSeedConfig("Sequoia National Park", "sequoia", 36.4864, -118.5658, 69, 77, 72, 70, 46000),
     ParkSeedConfig(
-        "Kings Canyon National Park", "kings-canyon", 36.8879, -118.5551, 63, 71, 68, 66, 35000
+        "Death Valley National Park", "death-valley", 36.5054, -117.0794, 66, 73, 65, 58,
+        "Harry Reid International Airport (LAS)", 120, "Pahrump, NV", "62 miles / ~1 hr 20 min drive",
+        "Long approach roads with limited services; fuel and water planning is essential.",
+        "Year-round access with periodic closures after flooding and hazardous summer heat windows.", 39000,
+    ),
+    ParkSeedConfig(
+        "Sequoia National Park", "sequoia", 36.4864, -118.5658, 69, 77, 72, 70,
+        "Fresno Yosemite International Airport (FAT)", 84, "Visalia, CA", "36 miles / ~1 hr drive",
+        "Access roads climb rapidly in elevation with frequent curves and slower mountain travel.",
+        "Higher-elevation roads may require chains or temporary winter restrictions.", 46000,
+    ),
+    ParkSeedConfig(
+        "Kings Canyon National Park", "kings-canyon", 36.8879, -118.5551, 63, 71, 68, 66,
+        "Fresno Yosemite International Airport (FAT)", 85, "Fresno, CA", "82 miles / ~1 hr 50 min drive",
+        "Single primary approach corridor into canyon areas with limited alternate routing.",
+        "Cedar Grove and some high-country roads have predictable seasonal closures.", 35000,
     ),
 )
 
@@ -231,6 +256,12 @@ def seed_database(session: Session, start_date: date | None = None) -> None:
             drive_access_score=config.drive_access_score,
             road_access_score=config.road_access_score,
             seasonal_access_score=config.seasonal_access_score,
+            nearest_major_airport=config.nearest_major_airport,
+            distance_to_nearest_airport_miles=config.distance_to_nearest_airport_miles,
+            nearest_city=config.nearest_city,
+            distance_from_nearest_city=config.distance_from_nearest_city,
+            road_access_description=config.road_access_description,
+            seasonal_access_description=config.seasonal_access_description,
             accessibility_score=accessibility_score,
         )
         session.add(park)
