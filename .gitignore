@@ -1,0 +1,22 @@
+# Node
+node_modules/
+.next/
+out/
+coverage/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# OS / Editors
+.DS_Store
+.vscode/
+.idea/
