@@ -1,6 +1,6 @@
 # California National Park Visitation Planner
 
-Initial monorepo scaffold for a full-stack application that forecasts weekly crowd levels and helps users choose better park visit windows across California national parks.
+Full-stack monorepo for forecasting California national park crowd levels and surfacing better trip windows.
 
 ## Repository Layout
 
@@ -12,8 +12,8 @@ Initial monorepo scaffold for a full-stack application that forecasts weekly cro
 │   ├── raw/                 # Source datasets
 │   ├── processed/           # Processed feature/forecast outputs
 │   └── fixtures/            # Mock/seed fixtures
-├── docs/                    # Product and build specifications
-└── scripts/                 # Developer utility scripts
+├── docs/                    # Product/build/task specs
+└── scripts/                 # Local developer utility scripts
 ```
 
 ## Prerequisites
@@ -21,40 +21,97 @@ Initial monorepo scaffold for a full-stack application that forecasts weekly cro
 - Node.js 20+
 - npm 10+
 - Python 3.11+
+- PostgreSQL 15+ (recommended for parity)
+- Redis 7+ (for API response caching)
 
-## Quick Start
+## 1) Environment Setup
 
-1. Copy environment templates:
+Copy environment templates:
 
-   ```bash
-   cp frontend/.env.example frontend/.env.local
-   cp backend/.env.example backend/.env
-   ```
+```bash
+cp frontend/.env.example frontend/.env.local
+cp backend/.env.example backend/.env
+```
 
-2. Install dependencies:
+Install all dependencies:
 
-   ```bash
-   ./scripts/setup.sh
-   ```
+```bash
+./scripts/setup.sh
+```
 
-3. Start backend:
+## 2) Start Local Infra
 
-   ```bash
-   cd backend
-   source .venv/bin/activate
-   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-   ```
+You can run Postgres + Redis locally via native installs, or with Docker:
 
-4. Start frontend (new terminal):
+```bash
+docker run --name ca-nps-postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=ca_nps_planner -p 5432:5432 -d postgres:15
 
-   ```bash
-   cd frontend
-   npm run dev
-   ```
+docker run --name ca-nps-redis -p 6379:6379 -d redis:7
+```
 
-Frontend runs at `http://localhost:3000` and backend at `http://localhost:8000`.
+`backend/.env.example` already includes compatible defaults:
 
-## Developer Commands
+- `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ca_nps_planner`
+- `REDIS_URL=redis://localhost:6379/0`
+- `REDIS_CACHE_TTL_SECONDS=300`
+
+If Redis is unavailable, APIs continue to work without cached responses.
+
+## 3) Seed Mock Data
+
+Run the backend seed script:
+
+```bash
+./scripts/seed-backend-db.sh
+```
+
+This loads parks, forecast weeks, crowd calendar records, accessibility fields, and alerts.
+
+## 4) Run the App End-to-End
+
+Backend:
+
+```bash
+./scripts/run-backend.sh
+```
+
+Frontend (new terminal):
+
+```bash
+./scripts/run-frontend.sh
+```
+
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8000
+- Health endpoint: http://localhost:8000/health
+
+## 5) Testing and Quality Commands
+
+Run backend checks:
+
+```bash
+./scripts/test-backend.sh
+```
+
+Run backend lint/format checks:
+
+```bash
+./scripts/lint-backend.sh
+```
+
+Run frontend checks:
+
+```bash
+./scripts/test-frontend.sh
+```
+
+Run full test suite:
+
+```bash
+./scripts/test-all.sh
+```
+
+You can also run commands manually:
 
 ### Frontend
 
@@ -62,8 +119,7 @@ Frontend runs at `http://localhost:3000` and backend at `http://localhost:8000`.
 cd frontend
 npm run lint
 npm run typecheck
-npm run format
-npm run test
+npm run test -- --run
 ```
 
 ### Backend
@@ -71,20 +127,11 @@ npm run test
 ```bash
 cd backend
 source .venv/bin/activate
-ruff check .
-black --check .
-pytest
+python3 -m pytest
 ```
 
-### Seed Mock Backend Data
+## Production-Readiness Notes (Current Phase)
 
-```bash
-./scripts/seed-backend-db.sh
-```
-
-By default seeding uses `DATABASE_URL` from `backend/.env`; if unset it falls back to a local sqlite file (`backend/local.db`).
-
-## Notes
-
-- This commit intentionally contains only scaffolding and DX setup.
-- Business logic, forecasting pipeline code, data ingestion, and feature endpoints will be implemented in later phases.
+- Redis-backed caching is enabled for high-read park endpoints (`/parks`, `/parks/map-data`, park detail, forecast, best-weeks, calendar, accessibility, alerts).
+- API error handling now returns consistent payloads for validation, database, and unexpected server exceptions.
+- Local scripts are included for setup, seeding, running, and testing to improve developer onboarding and repeatability.
