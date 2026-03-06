@@ -17,7 +17,6 @@ type CrowdLevel = ParksMapDataItem["crowd_level"];
 type LeafletLatLng = [number, number];
 
 interface LeafletMarker {
-  bindTooltip(content: string, options?: { permanent?: boolean; direction?: "left" | "right" | "top" | "bottom"; offset?: [number, number] }): LeafletMarker;
   bindPopup(content: string): LeafletMarker;
   addTo(layer: LeafletLayerGroup): LeafletMarker;
   on(eventName: "click", handler: () => void): LeafletMarker;
@@ -34,11 +33,20 @@ interface LeafletMap {
   remove(): void;
 }
 
+interface LeafletDivIcon {
+  className?: string;
+  html?: string;
+  iconSize?: [number, number];
+  iconAnchor?: [number, number];
+}
+
 interface LeafletNamespace {
   map(element: HTMLDivElement, options?: { zoomControl?: boolean }): LeafletMap;
   tileLayer(urlTemplate: string, options: { attribution: string; maxZoom?: number; minZoom?: number }): { addTo(map: LeafletMap): void };
   layerGroup(): LeafletLayerGroup;
   circleMarker(latLng: LeafletLatLng, options: { radius: number; color: string; weight: number; fillColor: string; fillOpacity: number }): LeafletMarker;
+  marker(latLng: LeafletLatLng, options?: { icon?: LeafletDivIcon; interactive?: boolean; keyboard?: boolean }): LeafletMarker;
+  divIcon(options: LeafletDivIcon): LeafletDivIcon;
 }
 
 declare global {
@@ -46,7 +54,6 @@ declare global {
     L?: LeafletNamespace;
   }
 }
-
 
 function getCrowdColor(level: CrowdLevel): string {
   if (level === "low") return "#10b981";
@@ -115,20 +122,32 @@ export function CaliforniaParkMap({ parks, selectedParkId, onSelectPark }: Calif
           fillColor: getCrowdColor(park.crowd_level),
           fillOpacity: 0.95,
         })
-        .bindTooltip(park.name.replace(" National Park", ""), { permanent: true, direction: "right", offset: [10, 0] })
         .bindPopup(`${park.name}<br/>Crowd score: ${scoreLabel}`)
         .addTo(markerLayer)
         .on("click", () => onSelectPark?.(park.park_id));
 
+      const labelText = park.name.replace(" National Park", "");
+      leaflet
+        .marker([park.latitude, park.longitude], {
+          icon: leaflet.divIcon({
+            className: "",
+            html: `<span style=\"display:inline-block;transform:translate(-50%,-26px);white-space:nowrap;font-size:12px;font-weight:600;color:#1f2937;text-shadow:0 1px 2px rgba(255,255,255,0.95);\">${labelText}</span>`,
+            iconSize: [0, 0],
+            iconAnchor: [0, 0],
+          }),
+          interactive: false,
+          keyboard: false,
+        })
+        .addTo(markerLayer);
+
       if (isSelected && marker.setStyle) {
-        marker.setStyle({ color: "#0f766e", weight: 3 });
+        marker.setStyle({ color: "#3F6B4F", weight: 3 });
       }
     });
-
   }, [isLeafletReady, onSelectPark, parks, selectedParkId]);
 
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <section className="rounded-xl border border-[#C7BFB3] bg-white p-5 shadow-sm">
       <Script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" strategy="afterInteractive" onLoad={() => setIsLeafletReady(true)} />
       <link
         rel="stylesheet"
@@ -142,7 +161,7 @@ export function CaliforniaParkMap({ parks, selectedParkId, onSelectPark }: Calif
         <p className="text-xs text-slate-500">Zoom, pan, and click a park marker to load analytics below.</p>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-slate-200">
+      <div className="overflow-hidden rounded-lg border border-[#C7BFB3]">
         <div ref={mapElementRef} className="h-[520px] w-full" role="img" aria-label="Interactive map of California national parks" />
       </div>
 
