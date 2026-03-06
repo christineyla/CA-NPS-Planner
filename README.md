@@ -67,7 +67,26 @@ Run the backend seed script:
 
 This loads parks, forecast weeks, crowd calendar records, accessibility fields, and alerts.
 
-## 4) Run the App End-to-End
+## 4) Load Real NPS Visitation History (Initial ETL Layer)
+
+After seeding, load real monthly visitation history for the five in-scope parks:
+
+```bash
+./scripts/load-visitation-etl.sh
+```
+
+The ETL uses the official NPS visitor use statistics package from IRMA (monthly recreation visits by park), then:
+
+- filters to Yosemite, Joshua Tree, Death Valley, Sequoia, and Kings Canyon
+- normalizes records into `park_visitation_history`
+- applies an initial rolling 3-year historical window
+- avoids preliminary current-year assumptions by loading only published package data
+- writes ETL metadata fields: `data_source`, `source_updated_at` (if inferable from source package), and `ingested_at`
+- safely reruns by replacing the same park/month window to prevent duplicates
+
+Seeded mock data remains in place for other domains (weather/trends/alerts) that are not yet sourced by live ETL.
+
+## 5) Run the App End-to-End
 
 Backend:
 
@@ -85,7 +104,7 @@ Frontend (new terminal):
 - Backend API: http://localhost:8000
 - Health endpoint: http://localhost:8000/health
 
-## 5) Testing and Quality Commands
+## 6) Testing and Quality Commands
 
 Run backend checks:
 

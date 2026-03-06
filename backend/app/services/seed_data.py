@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timezone, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -281,6 +281,9 @@ def seed_database(session: Session, start_date: date | None = None) -> None:
                     park_id=park.id,
                     observation_month=month_date,
                     visits=visits,
+                    data_source="seeded_mock",
+                    source_updated_at=None,
+                    ingested_at=datetime.now(timezone.utc),
                 )
             )
 
