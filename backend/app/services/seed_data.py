@@ -59,34 +59,151 @@ def _crowd_level(crowd_score: float) -> tuple[str, str]:
 
 
 def _park_alerts(park: Park, seed_start: date) -> list[ParkAlert]:
+    alerts_by_slug: dict[str, list[dict[str, str | int | bool]]] = {
+        "yosemite": [
+            {
+                "title": "El Portal Road rockslide closure",
+                "severity": "red",
+                "message": "A major rockslide has closed a key Valley approach route. Expect detours and extended drive times.",
+                "start_offset_days": 7,
+                "end_offset_days": 28,
+                "is_active": True,
+            },
+            {
+                "title": "Merced River flooding watch",
+                "severity": "orange",
+                "message": "High runoff may temporarily close low-elevation trails, shuttle stops, and river access points.",
+                "start_offset_days": 35,
+                "end_offset_days": 49,
+                "is_active": True,
+            },
+            {
+                "title": "Half Dome cables weather caution",
+                "severity": "yellow",
+                "message": "Afternoon storms are expected; rangers advise early starts and flexible summit plans.",
+                "start_offset_days": 56,
+                "end_offset_days": 70,
+                "is_active": True,
+            },
+        ],
+        "joshua-tree": [
+            {
+                "title": "Extreme heat advisory",
+                "severity": "red",
+                "message": "Daytime highs above 110°F create dangerous exposure risk; avoid midday hiking and climbing.",
+                "start_offset_days": 14,
+                "end_offset_days": 35,
+                "is_active": True,
+            },
+            {
+                "title": "Cottonwood area flash flooding",
+                "severity": "orange",
+                "message": "Monsoonal storms may produce washouts and short-notice closures on backcountry roads.",
+                "start_offset_days": 42,
+                "end_offset_days": 56,
+                "is_active": True,
+            },
+            {
+                "title": "Ryan Campground water system repairs",
+                "severity": "yellow",
+                "message": "Intermittent utility interruptions are expected while maintenance crews complete repairs.",
+                "start_offset_days": 0,
+                "end_offset_days": 21,
+                "is_active": True,
+            },
+        ],
+        "death-valley": [
+            {
+                "title": "Heat danger and area closure",
+                "severity": "red",
+                "message": "Sections of exposed salt pan viewpoints are closed during prolonged extreme heat conditions.",
+                "start_offset_days": 0,
+                "end_offset_days": 42,
+                "is_active": True,
+            },
+            {
+                "title": "CA-190 storm damage major closure",
+                "severity": "red",
+                "message": "A major road segment remains closed for reconstruction after flood damage.",
+                "start_offset_days": 49,
+                "end_offset_days": 77,
+                "is_active": True,
+            },
+            {
+                "title": "Windblown dust visibility caution",
+                "severity": "yellow",
+                "message": "Strong crosswinds can reduce visibility and affect high-profile vehicles on open roads.",
+                "start_offset_days": 21,
+                "end_offset_days": 35,
+                "is_active": True,
+            },
+        ],
+        "sequoia": [
+            {
+                "title": "Generals Highway wildfire operations",
+                "severity": "orange",
+                "message": "Active wildfire response may trigger rolling one-lane controls and smoke impacts.",
+                "start_offset_days": 7,
+                "end_offset_days": 30,
+                "is_active": True,
+            },
+            {
+                "title": "Foothills prescribed burn advisory",
+                "severity": "yellow",
+                "message": "Smoke-sensitive visitors should plan around scheduled burn windows and shifting wind patterns.",
+                "start_offset_days": 31,
+                "end_offset_days": 45,
+                "is_active": True,
+            },
+            {
+                "title": "Mineral King Road overnight closure",
+                "severity": "orange",
+                "message": "Nighttime paving operations close access from 8 PM to 6 AM on weekdays.",
+                "start_offset_days": 46,
+                "end_offset_days": 67,
+                "is_active": True,
+            },
+        ],
+        "kings-canyon": [
+            {
+                "title": "Cedar Grove area closure",
+                "severity": "red",
+                "message": "Rockfall risk has closed Cedar Grove roads and trails until slope stabilization is complete.",
+                "start_offset_days": 14,
+                "end_offset_days": 49,
+                "is_active": True,
+            },
+            {
+                "title": "South Fork Kings River flooding",
+                "severity": "orange",
+                "message": "Localized flooding may impact low-water crossings and selected canyon trailheads.",
+                "start_offset_days": 56,
+                "end_offset_days": 70,
+                "is_active": True,
+            },
+            {
+                "title": "High-elevation weather caution",
+                "severity": "yellow",
+                "message": "Late-season snow and cold nights may require traction devices on selected routes.",
+                "start_offset_days": 0,
+                "end_offset_days": 18,
+                "is_active": True,
+            },
+        ],
+    }
+
+    park_alert_specs = alerts_by_slug[park.slug]
     return [
         ParkAlert(
             park=park,
-            title="Flooding closure warning",
-            severity="severe",
-            message="Flash flood conditions may close key access roads and trail corridors.",
-            starts_on=seed_start + timedelta(days=42),
-            ends_on=seed_start + timedelta(days=55),
-            is_active=True,
-        ),
-        ParkAlert(
-            park=park,
-            title="Trail maintenance advisory",
-            severity="moderate",
-            message="Select trails may have intermittent closures due to maintenance operations.",
-            starts_on=seed_start + timedelta(days=14),
-            ends_on=seed_start + timedelta(days=35),
-            is_active=True,
-        ),
-        ParkAlert(
-            park=park,
-            title="Weekend parking congestion",
-            severity="low",
-            message="Primary parking lots are expected to fill before 10 AM on peak weekends.",
-            starts_on=seed_start,
-            ends_on=seed_start + timedelta(days=60),
-            is_active=True,
-        ),
+            title=spec["title"],
+            severity=spec["severity"],
+            message=spec["message"],
+            starts_on=seed_start + timedelta(days=int(spec["start_offset_days"])),
+            ends_on=seed_start + timedelta(days=int(spec["end_offset_days"])),
+            is_active=bool(spec["is_active"]),
+        )
+        for spec in park_alert_specs
     ]
 
 

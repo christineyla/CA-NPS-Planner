@@ -7,7 +7,7 @@ from datetime import date
 
 from app.models import ParkAlert, ParkVisitationForecast
 
-SEVERE_ALERT_LEVELS: frozenset[str] = frozenset({"severe", "critical"})
+SEVERE_ALERT_LEVELS: frozenset[str] = frozenset({"red"})
 
 
 def is_severe_alert(alert: ParkAlert) -> bool:

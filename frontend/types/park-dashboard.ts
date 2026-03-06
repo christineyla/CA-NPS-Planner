@@ -39,7 +39,7 @@ export interface CalendarWeek {
 export interface AlertResponse {
   id: number;
   title: string;
-  severity: "low" | "moderate" | "high" | "severe";
+  severity: "yellow" | "orange" | "red";
   message: string;
   starts_on: string;
   ends_on: string;
