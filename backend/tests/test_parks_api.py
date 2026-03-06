@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app import models  # noqa: F401
 from app.db import Base, get_session
@@ -13,7 +14,12 @@ from app.services import FORECAST_WEEKS, PARK_CONFIGS, seed_database
 
 @pytest.fixture()
 def seeded_client() -> Generator[TestClient, None, None]:
-    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
     Base.metadata.create_all(bind=engine)
 
     session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)

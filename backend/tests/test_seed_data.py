@@ -1,5 +1,6 @@
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import CrowdCalendar, Park, ParkAlert, ParkVisitationForecast, ParkVisitationHistory
@@ -7,7 +8,12 @@ from app.services import FORECAST_WEEKS, PARK_CONFIGS, seed_database
 
 
 def test_seed_database_creates_required_mock_data() -> None:
-    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
     Base.metadata.create_all(bind=engine)
 
     with Session(engine) as session:
