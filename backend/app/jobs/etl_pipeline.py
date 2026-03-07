@@ -23,11 +23,16 @@ NPS_MONTHLY_ZIP_URL = (
     "AnnualVisitationByPark%281979%20-%20Last%20Calendar%20Year%29.zip"
 )
 DATA_GOV_PACKAGE_API_URL = "https://catalog.data.gov/api/3/action/package_show"
-DATA_GOV_PACKAGE_IDS = (
+DATA_GOV_PACKAGE_SEARCH_API_URL = "https://catalog.data.gov/api/3/action/package_search"
+DATA_GOV_TARGET_DATASET_TITLE = "NPS Visitor Use Statistics Data Package, 2024"
+DATA_GOV_PACKAGE_SLUG_CANDIDATES = (
+    "nps-visitor-use-statistics-data-package-2024",
     "nps-visitor-use-statistics",
     "national-park-service-visitor-use-statistics",
 )
 DATA_GOV_PRIMARY_RESOURCE_KEYWORDS = (
+    "main_data.csv",
+    "main data",
     "annual park recreation visitation",
     "1904",
     "last calendar year",
@@ -186,18 +191,76 @@ class NPSVisitationETL:
 
     def _download_datagov_package_metadata(self) -> dict[str, Any]:
         errors: list[str] = []
-        for package_id in DATA_GOV_PACKAGE_IDS:
+        for package_id in DATA_GOV_PACKAGE_SLUG_CANDIDATES:
             api_url = f"{DATA_GOV_PACKAGE_API_URL}?id={package_id}"
             try:
                 payload = self._download_source_payload(api_url)
                 package = json.loads(payload.decode("utf-8"))
-                if bool(package.get("success")) and isinstance(package.get("result"), dict):
-                    return package["result"]
+                result = package.get("result")
+                if bool(package.get("success")) and isinstance(result, dict):
+                    title = str(result.get("title", ""))
+                    if title.lower() == DATA_GOV_TARGET_DATASET_TITLE.lower():
+                        return result
+                    errors.append(
+                        f"{package_id}: resolved to unexpected title '{title or 'unknown'}'"
+                    )
+                    continue
                 errors.append(f"{package_id}: malformed package response")
             except Exception as exc:  # noqa: BLE001 - collect each candidate error
                 errors.append(f"{package_id}: {exc}")
 
-        raise RuntimeError("; ".join(errors) or "unable to resolve Data.gov package metadata")
+        search_url = (
+            f"{DATA_GOV_PACKAGE_SEARCH_API_URL}?q={DATA_GOV_TARGET_DATASET_TITLE}"
+            "&rows=10"
+        )
+        try:
+            payload = self._download_source_payload(search_url)
+            package = json.loads(payload.decode("utf-8"))
+            if not bool(package.get("success")):
+                raise RuntimeError("malformed package_search response")
+
+            result = package.get("result")
+            datasets = result.get("results") if isinstance(result, dict) else None
+            if not isinstance(datasets, list):
+                raise RuntimeError("package_search did not include result entries")
+
+            exact_title_match = [
+                dataset
+                for dataset in datasets
+                if isinstance(dataset, dict)
+                and str(dataset.get("title", "")).lower()
+                == DATA_GOV_TARGET_DATASET_TITLE.lower()
+            ]
+
+            ranked_candidates = exact_title_match or [d for d in datasets if isinstance(d, dict)]
+            for dataset in ranked_candidates:
+                package_name = str(dataset.get("name", "")).strip()
+                dataset_title = str(dataset.get("title", "")).strip()
+                if not package_name:
+                    continue
+                api_url = f"{DATA_GOV_PACKAGE_API_URL}?id={package_name}"
+                try:
+                    detail_payload = self._download_source_payload(api_url)
+                    detail_package = json.loads(detail_payload.decode("utf-8"))
+                    detail_result = detail_package.get("result")
+                    if bool(detail_package.get("success")) and isinstance(detail_result, dict):
+                        title = str(detail_result.get("title", ""))
+                        if title.lower() == DATA_GOV_TARGET_DATASET_TITLE.lower():
+                            return detail_result
+                        errors.append(
+                            f"{package_name}: search candidate title mismatch '{title or dataset_title or 'unknown'}'"
+                        )
+                        continue
+                    errors.append(f"{package_name}: malformed package response")
+                except Exception as exc:  # noqa: BLE001 - collect candidate failure detail
+                    errors.append(f"{package_name}: {exc}")
+        except Exception as exc:  # noqa: BLE001 - include search failure details
+            errors.append(f"package_search: {exc}")
+
+        raise RuntimeError(
+            "; ".join(errors)
+            or "unable to resolve Data.gov package metadata for NPS Visitor Use Statistics Data Package, 2024"
+        )
 
     def _select_datagov_primary_resource_url(self, package_metadata: dict[str, Any]) -> str:
         resources = package_metadata.get("resources")
@@ -208,12 +271,15 @@ class NPSVisitationETL:
             name = str(resource.get("name", "")).lower()
             description = str(resource.get("description", "")).lower()
             format_value = str(resource.get("format", "")).lower()
+            resource_url = str(resource.get("url", "")).lower()
 
             score = 0
-            haystack = f"{name} {description}"
+            haystack = f"{name} {description} {resource_url}"
             for keyword in DATA_GOV_PRIMARY_RESOURCE_KEYWORDS:
                 if keyword in haystack:
                     score += 3
+            if "main_data.csv" in resource_url:
+                score += 5
             if "visitation" in haystack:
                 score += 2
             if "monthly" in haystack:
@@ -223,8 +289,18 @@ class NPSVisitationETL:
             return score
 
         sorted_resources = sorted(resources, key=_resource_score, reverse=True)
+        if _resource_score(sorted_resources[0]) <= 0:
+            resource_descriptions = [
+                str(resource.get("name") or resource.get("id") or "unnamed")
+                for resource in resources
+            ]
+            raise RuntimeError(
+                "Data.gov fallback could not identify the main visitation CSV resource. "
+                f"Available resources: {resource_descriptions}"
+            )
+
         resource_url = sorted_resources[0].get("url")
-        if not resource_url:
+        if not resource_url or not str(resource_url).strip():
             raise RuntimeError(
                 "Data.gov primary visitation resource did not include a downloadable URL"
             )
