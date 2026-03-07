@@ -167,7 +167,7 @@ def test_visitation_etl_raises_when_in_scope_park_metadata_missing() -> None:
             assert "in-scope parks" in str(exc)
 
 
-def test_visitation_etl_falls_back_to_datagov_when_irma_fails(
+def test_visitation_etl_resolves_correct_datagov_package_and_falls_back_when_irma_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     engine = _make_seeded_engine()
@@ -179,22 +179,57 @@ def test_visitation_etl_falls_back_to_datagov_when_irma_fails(
         calls.append(url)
         if url == etl.source_url:
             raise RuntimeError("HTTP request failed for IRMA: 500 Server Error")
-        if "package_show" in url:
+        if "package_show?id=nps-visitor-use-statistics-data-package-2024" in url:
+            # Existing slug can drift and resolve to a different package title.
+            return json.dumps(
+                {
+                    "success": True,
+                    "result": {
+                        "title": "NPS Visitor Use Statistics Data Package, 2023",
+                        "resources": [],
+                    },
+                }
+            ).encode("utf-8")
+        if "package_show?id=nps-visitor-use-statistics" in url:
+            raise RuntimeError("404 Not Found")
+        if "package_show?id=national-park-service-visitor-use-statistics" in url:
+            raise RuntimeError("404 Not Found")
+        if "package_search" in url:
+            return json.dumps(
+                {
+                    "success": True,
+                    "result": {
+                        "results": [
+                            {
+                                "name": "official-2024-package",
+                                "title": "NPS Visitor Use Statistics Data Package, 2024",
+                            }
+                        ]
+                    },
+                }
+            ).encode("utf-8")
+        if "package_show?id=official-2024-package" in url:
             package = {
                 "success": True,
                 "result": {
+                    "title": "NPS Visitor Use Statistics Data Package, 2024",
                     "metadata_modified": "2025-03-01T00:00:00.000000",
                     "resources": [
                         {
-                            "name": "Annual Park Recreation Visitation (1904 - Last Calendar Year)",
+                            "name": "Main_Data.csv",
                             "format": "CSV",
-                            "url": "https://example.test/nps-visits.csv",
-                        }
+                            "url": "https://example.test/Main_Data.csv",
+                        },
+                        {
+                            "name": "Readme",
+                            "format": "TXT",
+                            "url": "https://example.test/readme.txt",
+                        },
                     ],
                 },
             }
             return json.dumps(package).encode("utf-8")
-        if "example.test/nps-visits.csv" in url:
+        if "example.test/Main_Data.csv" in url:
             return _build_source_csv()
         raise AssertionError(f"Unexpected URL: {url}")
 
@@ -208,8 +243,9 @@ def test_visitation_etl_falls_back_to_datagov_when_irma_fails(
 
     assert loaded == 5 * 6
     assert len(history) == loaded
-    assert any("package_show" in url for url in calls)
-    assert any("example.test/nps-visits.csv" in url for url in calls)
+    assert any("package_search" in url for url in calls)
+    assert any("package_show?id=official-2024-package" in url for url in calls)
+    assert any("example.test/Main_Data.csv" in url for url in calls)
     assert all(row.data_source == etl.fallback_source_label for row in history)
 
 
@@ -228,4 +264,38 @@ def test_visitation_etl_raises_clear_error_when_irma_and_datagov_fail(
 
     with Session(engine) as session:
         with pytest.raises(RuntimeError, match="both official IRMA and Data.gov sources"):
+            etl.run(session=session)
+
+
+def test_visitation_etl_fallback_errors_when_datagov_resource_cannot_be_resolved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = _make_seeded_engine()
+    etl = NPSVisitationETL()
+
+    def fake_download(url: str) -> bytes:
+        if url == etl.source_url:
+            raise RuntimeError("HTTP request failed for IRMA: 500 Server Error")
+        if "package_show" in url:
+            return json.dumps(
+                {
+                    "success": True,
+                    "result": {
+                        "title": "NPS Visitor Use Statistics Data Package, 2024",
+                        "resources": [
+                            {
+                                "name": "Documentation",
+                                "format": "HTML",
+                                "url": "https://example.test/docs",
+                            }
+                        ],
+                    },
+                }
+            ).encode("utf-8")
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr(etl, "_download_source_payload", fake_download)
+
+    with Session(engine) as session:
+        with pytest.raises(RuntimeError, match="main visitation CSV resource"):
             etl.run(session=session)

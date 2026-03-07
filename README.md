@@ -75,7 +75,7 @@ After seeding, load real monthly visitation history for the five in-scope parks:
 ./scripts/load-visitation-etl.sh
 ```
 
-The ETL preserves an official-source strategy and downloads monthly recreation visits from IRMA first. If the IRMA direct download endpoint returns an HTTP error (including 500 responses), it automatically falls back to the official Data.gov NPS Visitor Use Statistics data package and selects the primary visitation dataset resource. Then it:
+The ETL preserves an official-source strategy and downloads monthly recreation visits from IRMA first. If the IRMA direct download endpoint returns an HTTP error (including 500 responses), it automatically falls back to Data.gov by resolving the official dataset titled `NPS Visitor Use Statistics Data Package, 2024` (first via known CKAN slugs, then via `package_search` title match) and selecting the main visitation CSV resource (preferencing `Main_Data.csv`/main-data style resources). Then it:
 
 - filters to Yosemite, Joshua Tree, Death Valley, Sequoia, and Kings Canyon
 - normalizes records into `park_visitation_history`
