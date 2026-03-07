@@ -797,7 +797,9 @@ class MeteostatWeatherETL:
             ) from exc
 
         point = Point(lat=latitude, lon=longitude, alt=altitude)
-        data = Daily(point, start=start_date, end=end_date).fetch()
+        start_datetime = datetime.combine(start_date, datetime.min.time())
+        end_datetime = datetime.combine(end_date, datetime.min.time())
+        data = Daily(point, start=start_datetime, end=end_datetime).fetch()
         if data.empty:
             return pd.DataFrame(columns=["date", "tavg", "tmin", "tmax", "prcp"])
 
