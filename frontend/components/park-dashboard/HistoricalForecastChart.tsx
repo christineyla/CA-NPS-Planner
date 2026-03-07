@@ -24,10 +24,11 @@ interface ChartPoint {
 
 const CHART_WIDTH = 760;
 const CHART_HEIGHT = 260;
-const LEFT_PADDING = 44;
+const LEFT_PADDING = 62;
 const RIGHT_PADDING = 52;
 const TOP_PADDING = 20;
 const BOTTOM_PADDING = 34;
+const X_AXIS_LABEL_ROTATION_DEGREES = -18;
 
 function formatLabel(date: Date): string {
   return date.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
@@ -216,7 +217,14 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
 
             const [x] = coordinates;
             return (
-              <text key={`${point.label}-${index}`} x={x} y={CHART_HEIGHT - 8} textAnchor="middle" className="fill-slate-500 text-[11px]">
+              <text
+                key={`${point.label}-${index}`}
+                x={x}
+                y={CHART_HEIGHT - 8}
+                textAnchor="middle"
+                transform={`rotate(${X_AXIS_LABEL_ROTATION_DEGREES} ${x} ${CHART_HEIGHT - 8})`}
+                className="fill-slate-500 text-[11px]"
+              >
                 {point.label}
               </text>
             );
