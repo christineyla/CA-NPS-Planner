@@ -16,6 +16,7 @@ from app.schemas.parks import (
     CalendarWeek,
     ForecastWeek,
     ParkDetail,
+    VisitationHistoryPoint,
     ParkListItem,
     ParksMapDataItem,
 )
@@ -28,6 +29,7 @@ from app.services.park_queries import (
     get_latest_forecast_for_parks,
     get_park_forecast,
     get_park_or_none,
+    get_park_visitation_history,
     get_parks,
 )
 
@@ -137,6 +139,19 @@ def park_forecast(park_id: int, session: Session = Depends(get_session)) -> list
     _set_cache(cache_key, response)
     return response
 
+
+
+
+@router.get("/{park_id}/visitation-history", response_model=list[VisitationHistoryPoint])
+def park_visitation_history(park_id: int, session: Session = Depends(get_session)) -> list[VisitationHistoryPoint]:
+    cache_key = f"parks:{park_id}:visitation-history"
+    if cached := _from_cache(cache_key):
+        return cached
+
+    _require_park(session, park_id)
+    response = list(get_park_visitation_history(session, park_id))
+    _set_cache(cache_key, response)
+    return response
 
 @router.get("/{park_id}/best-weeks", response_model=BestWeeksResponse)
 def park_best_weeks(park_id: int, session: Session = Depends(get_session)) -> BestWeeksResponse:

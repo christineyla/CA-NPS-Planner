@@ -55,7 +55,17 @@ def test_parks_endpoints_return_seeded_data(seeded_client: TestClient) -> None:
 
     forecast_response = seeded_client.get(f"/parks/{first_park_id}/forecast")
     assert forecast_response.status_code == 200
-    assert len(forecast_response.json()) == FORECAST_WEEKS
+    forecast_payload = forecast_response.json()
+    assert len(forecast_payload) == FORECAST_WEEKS
+    assert "predicted_visits_lower" in forecast_payload[0]
+    assert "predicted_visits_upper" in forecast_payload[0]
+
+    history_response = seeded_client.get(f"/parks/{first_park_id}/visitation-history")
+    assert history_response.status_code == 200
+    history_payload = history_response.json()
+    assert len(history_payload) > 0
+    assert "observation_month" in history_payload[0]
+    assert "visits" in history_payload[0]
 
     best_weeks_response = seeded_client.get(f"/parks/{first_park_id}/best-weeks")
     assert best_weeks_response.status_code == 200

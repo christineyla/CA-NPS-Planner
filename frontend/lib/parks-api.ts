@@ -8,6 +8,7 @@ import {
   ParkDetail,
   ParkListItem,
   ParksMapDataItem,
+  VisitationHistoryPoint,
 } from "@/types/park-dashboard";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -41,9 +42,10 @@ export function getParkForecast(parkId: number): Promise<ForecastWeek[]> {
 }
 
 export async function getParkDashboardData(parkId: number): Promise<ParkDashboardData> {
-  const [park, forecast, bestWeeks, calendar, alerts, accessibility] = await Promise.all([
+  const [park, forecast, history, bestWeeks, calendar, alerts, accessibility] = await Promise.all([
     fetchApi<ParkDetail>(`/parks/${parkId}`),
     fetchApi<ForecastWeek[]>(`/parks/${parkId}/forecast`),
+    fetchApi<VisitationHistoryPoint[]>(`/parks/${parkId}/visitation-history`),
     fetchApi<BestWeeksResponse>(`/parks/${parkId}/best-weeks`),
     fetchApi<CalendarWeek[]>(`/parks/${parkId}/calendar`),
     fetchApi<AlertResponse[]>(`/parks/${parkId}/alerts`),
@@ -53,6 +55,7 @@ export async function getParkDashboardData(parkId: number): Promise<ParkDashboar
   return {
     park,
     forecast,
+    history,
     bestWeeks,
     calendar,
     alerts,
