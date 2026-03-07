@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
+import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from io import BytesIO
-import zipfile
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -15,9 +17,20 @@ from sqlalchemy.orm import Session
 from app.models import Park, ParkVisitationHistory
 
 NPS_MONTHLY_SOURCE = "NPS Visitor Use Statistics (IRMA monthly visitation package)"
+NPS_MONTHLY_FALLBACK_SOURCE = "NPS Visitor Use Statistics (Data.gov data package resource)"
 NPS_MONTHLY_ZIP_URL = (
     "https://irma.nps.gov/STATS/FileDownloadHandler.ashx?type=V&filename=Reports%2F"
     "AnnualVisitationByPark%281979%20-%20Last%20Calendar%20Year%29.zip"
+)
+DATA_GOV_PACKAGE_API_URL = "https://catalog.data.gov/api/3/action/package_show"
+DATA_GOV_PACKAGE_IDS = (
+    "nps-visitor-use-statistics",
+    "national-park-service-visitor-use-statistics",
+)
+DATA_GOV_PRIMARY_RESOURCE_KEYWORDS = (
+    "annual park recreation visitation",
+    "1904",
+    "last calendar year",
 )
 IN_SCOPE_PARK_NAMES = {
     "Yosemite National Park": "yosemite",
@@ -76,23 +89,37 @@ class NPSVisitationETL:
 
     source_url: str = NPS_MONTHLY_ZIP_URL
     source_label: str = NPS_MONTHLY_SOURCE
+    fallback_source_label: str = NPS_MONTHLY_FALLBACK_SOURCE
     lookback_years: int = 3
 
-    def run(self, session: Session, csv_payload: bytes | None = None, source_updated_at: datetime | None = None) -> int:
+    def run(
+        self,
+        session: Session,
+        csv_payload: bytes | None = None,
+        source_updated_at: datetime | None = None,
+    ) -> int:
         """Load normalized monthly visitation history into park_visitation_history."""
 
         parks_by_slug = self._fetch_in_scope_parks(session)
         if len(parks_by_slug) != len(IN_SCOPE_PARK_NAMES):
-            raise ValueError("Expected all in-scope parks to be present before running visitation ETL")
+            raise ValueError(
+                "Expected all in-scope parks to be present before running visitation ETL"
+            )
 
-        payload = csv_payload if csv_payload is not None else self._download_source_payload()
+        source_label = self.source_label
+        payload = csv_payload
+        if payload is None:
+            payload, source_label, source_updated_at = self._download_with_fallback(
+                source_updated_at
+            )
+
         transformed = self._transform_csv_payload(payload=payload, parks_by_slug=parks_by_slug)
         if transformed.empty:
             return 0
 
         source_timestamp = source_updated_at or self._infer_source_updated_at(payload)
-        ingested_at = datetime.now(timezone.utc)
-        transformed["data_source"] = self.source_label
+        ingested_at = datetime.now(timezone.utc)  # noqa: UP017
+        transformed["data_source"] = source_label
         transformed["source_updated_at"] = source_timestamp
         transformed["ingested_at"] = ingested_at
 
@@ -100,31 +127,136 @@ class NPSVisitationETL:
         return int(len(transformed))
 
     def _fetch_in_scope_parks(self, session: Session) -> dict[str, Park]:
-        parks = session.scalars(select(Park).where(Park.slug.in_(IN_SCOPE_PARK_NAMES.values()))).all()
+        parks = session.scalars(
+            select(Park).where(Park.slug.in_(IN_SCOPE_PARK_NAMES.values()))
+        ).all()
         return {park.slug: park for park in parks}
 
-    def _download_source_payload(self) -> bytes:
+    def _download_with_fallback(
+        self, source_updated_at: datetime | None
+    ) -> tuple[bytes, str, datetime | None]:
+        """Download IRMA source first, then fallback to Data.gov official package on HTTP failure.
+
+        We preserve the current official-source strategy by preferring IRMA's direct package URL.
+        When IRMA returns an HTTP failure (including recent 500s), we fetch the official Data.gov
+        package metadata and download the primary monthly visitation resource instead.
+        """
+
+        irma_errors: list[str] = []
+        try:
+            payload = self._download_source_payload(self.source_url)
+            inferred_source_updated = source_updated_at or self._infer_source_updated_at(payload)
+            return payload, self.source_label, inferred_source_updated
+        except RuntimeError as exc:
+            irma_errors.append(str(exc))
+
+        try:
+            payload, fallback_updated_at = self._download_datagov_fallback_payload()
+            resolved_updated_at = (
+                source_updated_at or fallback_updated_at or self._infer_source_updated_at(payload)
+            )
+            return payload, self.fallback_source_label, resolved_updated_at
+        except RuntimeError as exc:
+            irma_detail = "; ".join(irma_errors) if irma_errors else "unknown IRMA error"
+            raise RuntimeError(
+                "Failed to download NPS visitation data from both official IRMA and Data.gov "
+                f"sources. IRMA error: {irma_detail}. Data.gov error: {exc}"
+            ) from exc
+
+    def _download_source_payload(self, url: str) -> bytes:
         try:
             import requests
         except ImportError as exc:  # pragma: no cover - validated in docs and runtime use
             raise RuntimeError(
-                "The visitation ETL requires the requests package to download IRMA source data."
+                "The visitation ETL requires the requests package to download source data."
             ) from exc
 
-        response = requests.get(self.source_url, timeout=60)
-        response.raise_for_status()
-        return response.content
+        try:
+            response = requests.get(url, timeout=60)
+            response.raise_for_status()
+            return response.content
+        except requests.RequestException as exc:
+            raise RuntimeError(f"HTTP request failed for {url}: {exc}") from exc
 
-    def _transform_csv_payload(self, payload: bytes, parks_by_slug: dict[str, Park]) -> pd.DataFrame:
+    def _download_datagov_fallback_payload(self) -> tuple[bytes, datetime | None]:
+        package_metadata = self._download_datagov_package_metadata()
+        resource_url = self._select_datagov_primary_resource_url(package_metadata)
+        payload = self._download_source_payload(resource_url)
+        return payload, self._parse_datagov_updated_at(package_metadata)
+
+    def _download_datagov_package_metadata(self) -> dict[str, Any]:
+        errors: list[str] = []
+        for package_id in DATA_GOV_PACKAGE_IDS:
+            api_url = f"{DATA_GOV_PACKAGE_API_URL}?id={package_id}"
+            try:
+                payload = self._download_source_payload(api_url)
+                package = json.loads(payload.decode("utf-8"))
+                if bool(package.get("success")) and isinstance(package.get("result"), dict):
+                    return package["result"]
+                errors.append(f"{package_id}: malformed package response")
+            except Exception as exc:  # noqa: BLE001 - collect each candidate error
+                errors.append(f"{package_id}: {exc}")
+
+        raise RuntimeError("; ".join(errors) or "unable to resolve Data.gov package metadata")
+
+    def _select_datagov_primary_resource_url(self, package_metadata: dict[str, Any]) -> str:
+        resources = package_metadata.get("resources")
+        if not isinstance(resources, list) or not resources:
+            raise RuntimeError("Data.gov package did not include resources")
+
+        def _resource_score(resource: dict[str, Any]) -> int:
+            name = str(resource.get("name", "")).lower()
+            description = str(resource.get("description", "")).lower()
+            format_value = str(resource.get("format", "")).lower()
+
+            score = 0
+            haystack = f"{name} {description}"
+            for keyword in DATA_GOV_PRIMARY_RESOURCE_KEYWORDS:
+                if keyword in haystack:
+                    score += 3
+            if "visitation" in haystack:
+                score += 2
+            if "monthly" in haystack:
+                score += 1
+            if format_value == "csv":
+                score += 2
+            return score
+
+        sorted_resources = sorted(resources, key=_resource_score, reverse=True)
+        resource_url = sorted_resources[0].get("url")
+        if not resource_url:
+            raise RuntimeError(
+                "Data.gov primary visitation resource did not include a downloadable URL"
+            )
+        return str(resource_url)
+
+    def _parse_datagov_updated_at(self, package_metadata: dict[str, Any]) -> datetime | None:
+        for field in ("metadata_modified", "metadata_created"):
+            value = package_metadata.get(field)
+            if not value:
+                continue
+            parsed = pd.to_datetime(value, utc=True, errors="coerce")
+            if pd.isna(parsed):
+                continue
+            return parsed.to_pydatetime()
+        return None
+
+    def _transform_csv_payload(
+        self, payload: bytes, parks_by_slug: dict[str, Park]
+    ) -> pd.DataFrame:
         frame = self._read_monthly_visitation_frame(payload)
 
-        frame = frame.rename(columns={"ParkName": "park_name", "Month": "month", "RecreationVisits": "visits"})
+        frame = frame.rename(
+            columns={"ParkName": "park_name", "Month": "month", "RecreationVisits": "visits"}
+        )
         frame = frame[["park_name", "month", "visits"]].copy()
         frame["park_name"] = frame["park_name"].astype(str).str.strip()
         frame = frame[frame["park_name"].isin(IN_SCOPE_PARK_NAMES.keys())]
 
         frame["park_slug"] = frame["park_name"].map(IN_SCOPE_PARK_NAMES)
-        frame["park_id"] = frame["park_slug"].map({slug: park.id for slug, park in parks_by_slug.items()})
+        frame["park_id"] = frame["park_slug"].map(
+            {slug: park.id for slug, park in parks_by_slug.items()}
+        )
         frame["observation_month"] = pd.to_datetime(frame["month"], errors="coerce").dt.date
         frame["visits"] = pd.to_numeric(frame["visits"], errors="coerce")
         frame = frame.dropna(subset=["park_id", "observation_month", "visits"])
@@ -159,7 +291,7 @@ class NPSVisitationETL:
                 return None
             newest = max(entries, key=lambda info: info.date_time)
             naive = datetime(*newest.date_time)
-            return naive.replace(tzinfo=timezone.utc)
+            return naive.replace(tzinfo=timezone.utc)  # noqa: UP017
 
     def _window_start(self, reference_date: date) -> date:
         return date(reference_date.year - self.lookback_years + 1, 1, 1)

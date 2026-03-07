@@ -1,7 +1,9 @@
 import csv
+import json
 from datetime import date, datetime, timezone
 from io import StringIO
 
+import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -71,7 +73,7 @@ def test_visitation_etl_filters_scope_and_enforces_three_year_window() -> None:
         loaded = etl.run(
             session=session,
             csv_payload=_build_source_csv(),
-            source_updated_at=datetime(2025, 1, 15, tzinfo=timezone.utc),
+            source_updated_at=datetime(2025, 1, 15, tzinfo=timezone.utc),  # noqa: UP017
         )
 
     with Session(engine) as session:
@@ -89,7 +91,7 @@ def test_visitation_etl_filters_scope_and_enforces_three_year_window() -> None:
 def test_visitation_etl_populates_metadata_and_is_duplicate_safe() -> None:
     engine = _make_seeded_engine()
     etl = NPSVisitationETL(lookback_years=3)
-    source_updated_at = datetime(2025, 2, 1, tzinfo=timezone.utc)
+    source_updated_at = datetime(2025, 2, 1, tzinfo=timezone.utc)  # noqa: UP017
 
     with Session(engine) as session:
         first_count = etl.run(
@@ -163,3 +165,67 @@ def test_visitation_etl_raises_when_in_scope_park_metadata_missing() -> None:
             assert False, "Expected missing park metadata error"
         except ValueError as exc:
             assert "in-scope parks" in str(exc)
+
+
+def test_visitation_etl_falls_back_to_datagov_when_irma_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = _make_seeded_engine()
+    etl = NPSVisitationETL(lookback_years=3)
+
+    calls: list[str] = []
+
+    def fake_download(url: str) -> bytes:
+        calls.append(url)
+        if url == etl.source_url:
+            raise RuntimeError("HTTP request failed for IRMA: 500 Server Error")
+        if "package_show" in url:
+            package = {
+                "success": True,
+                "result": {
+                    "metadata_modified": "2025-03-01T00:00:00.000000",
+                    "resources": [
+                        {
+                            "name": "Annual Park Recreation Visitation (1904 - Last Calendar Year)",
+                            "format": "CSV",
+                            "url": "https://example.test/nps-visits.csv",
+                        }
+                    ],
+                },
+            }
+            return json.dumps(package).encode("utf-8")
+        if "example.test/nps-visits.csv" in url:
+            return _build_source_csv()
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr(etl, "_download_source_payload", fake_download)
+
+    with Session(engine) as session:
+        loaded = etl.run(session=session)
+
+    with Session(engine) as session:
+        history = session.scalars(select(ParkVisitationHistory)).all()
+
+    assert loaded == 5 * 6
+    assert len(history) == loaded
+    assert any("package_show" in url for url in calls)
+    assert any("example.test/nps-visits.csv" in url for url in calls)
+    assert all(row.data_source == etl.fallback_source_label for row in history)
+
+
+def test_visitation_etl_raises_clear_error_when_irma_and_datagov_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = _make_seeded_engine()
+    etl = NPSVisitationETL()
+
+    def always_fail(url: str) -> bytes:
+        if url == etl.source_url:
+            raise RuntimeError("HTTP request failed for IRMA: 500 Server Error")
+        raise RuntimeError("HTTP request failed for Data.gov: 503 Service Unavailable")
+
+    monkeypatch.setattr(etl, "_download_source_payload", always_fail)
+
+    with Session(engine) as session:
+        with pytest.raises(RuntimeError, match="both official IRMA and Data.gov sources"):
+            etl.run(session=session)

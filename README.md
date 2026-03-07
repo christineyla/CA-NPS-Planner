@@ -75,7 +75,7 @@ After seeding, load real monthly visitation history for the five in-scope parks:
 ./scripts/load-visitation-etl.sh
 ```
 
-The ETL uses the official NPS visitor use statistics package from IRMA (monthly recreation visits by park), then:
+The ETL preserves an official-source strategy and downloads monthly recreation visits from IRMA first. If the IRMA direct download endpoint returns an HTTP error (including 500 responses), it automatically falls back to the official Data.gov NPS Visitor Use Statistics data package and selects the primary visitation dataset resource. Then it:
 
 - filters to Yosemite, Joshua Tree, Death Valley, Sequoia, and Kings Canyon
 - normalizes records into `park_visitation_history`
@@ -83,6 +83,7 @@ The ETL uses the official NPS visitor use statistics package from IRMA (monthly 
 - avoids preliminary current-year assumptions by loading only published package data
 - writes ETL metadata fields: `data_source`, `source_updated_at` (if inferable from source package), and `ingested_at`
 - safely reruns by replacing the same park/month window to prevent duplicates
+- raises a clear error if both official IRMA and Data.gov sources fail
 
 Seeded mock data remains in place for other domains (weather/trends/alerts) that are not yet sourced by live ETL.
 
