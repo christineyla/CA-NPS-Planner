@@ -1,6 +1,7 @@
 from datetime import date
 
 import pandas as pd
+import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -40,6 +41,82 @@ def _fake_weather_frame(start: date, end: date, temp_offset: float = 0.0) -> pd.
         }
     )
 
+
+
+
+def test_weather_etl_uses_point_daily_when_available(monkeypatch) -> None:
+    engine = _make_seeded_engine()
+    etl = MeteostatWeatherETL(lookback_years=3)
+    start_date, end_date = date(2023, 1, 1), date(2023, 1, 10)
+    monkeypatch.setattr(etl, "_window_dates", lambda reference_date: (start_date, end_date))
+
+    point_calls: list[str] = []
+
+    def fake_point_fetch(*, latitude: float, longitude: float, start_date: date, end_date: date, altitude=None):
+        point_calls.append(f"{latitude}:{longitude}")
+        return _fake_weather_frame(start=start_date, end=end_date)
+
+    monkeypatch.setattr(etl, "_fetch_meteostat_point_daily", fake_point_fetch)
+    monkeypatch.setattr(etl, "_discover_nearby_station_ids", lambda **kwargs: ["SHOULD_NOT_BE_USED"])
+    monkeypatch.setattr(etl, "_fetch_meteostat_station_daily", lambda **kwargs: pd.DataFrame())
+
+    with Session(engine) as session:
+        loaded = etl.run(session=session)
+        rows = session.scalars(select(ParkWeatherHistory)).all()
+
+    assert loaded > 0
+    assert point_calls
+    assert all(row.data_source == etl.source_label for row in rows)
+
+
+def test_weather_etl_falls_back_to_nearby_station_when_point_is_empty(monkeypatch) -> None:
+    engine = _make_seeded_engine()
+    etl = MeteostatWeatherETL(lookback_years=3)
+    start_date, end_date = date(2023, 1, 1), date(2023, 1, 10)
+    monkeypatch.setattr(etl, "_window_dates", lambda reference_date: (start_date, end_date))
+
+    monkeypatch.setattr(
+        etl,
+        "_fetch_meteostat_point_daily",
+        lambda **kwargs: pd.DataFrame(columns=["date", "tavg", "tmin", "tmax", "prcp"]),
+    )
+    monkeypatch.setattr(etl, "_discover_nearby_station_ids", lambda **kwargs: ["STATION_1", "STATION_2"])
+    monkeypatch.setattr(
+        etl,
+        "_fetch_meteostat_station_daily",
+        lambda **kwargs: _fake_weather_frame(start=start_date, end=end_date),
+    )
+
+    with Session(engine) as session:
+        loaded = etl.run(session=session)
+        rows = session.scalars(select(ParkWeatherHistory)).all()
+
+    assert loaded > 0
+    assert rows
+    assert all(row.data_source == etl.fallback_source_label for row in rows)
+
+
+def test_weather_etl_fails_clearly_when_point_and_station_fallback_are_empty(monkeypatch) -> None:
+    engine = _make_seeded_engine()
+    etl = MeteostatWeatherETL(lookback_years=3)
+    start_date, end_date = date(2023, 1, 1), date(2023, 1, 10)
+    monkeypatch.setattr(etl, "_window_dates", lambda reference_date: (start_date, end_date))
+
+    monkeypatch.setattr(
+        etl,
+        "_fetch_meteostat_point_daily",
+        lambda **kwargs: pd.DataFrame(columns=["date", "tavg", "tmin", "tmax", "prcp"]),
+    )
+    monkeypatch.setattr(etl, "_discover_nearby_station_ids", lambda **kwargs: ["STATION_1"])
+    monkeypatch.setattr(
+        etl,
+        "_fetch_meteostat_station_daily",
+        lambda **kwargs: pd.DataFrame(columns=["date", "tavg", "tmin", "tmax", "prcp"]),
+    )
+
+    with Session(engine) as session:
+        with pytest.raises(RuntimeError, match="point-based or nearby-station fallback ingestion"):
+            etl.run(session=session)
 
 def test_weather_etl_loads_only_in_scope_parks_and_enforces_three_year_window(
     monkeypatch,

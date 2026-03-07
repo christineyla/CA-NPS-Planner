@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -15,6 +16,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.models import Park, ParkVisitationHistory, ParkWeatherHistory
+
+logger = logging.getLogger(__name__)
 
 NPS_MONTHLY_SOURCE = "NPS Visitor Use Statistics (IRMA monthly visitation package)"
 NPS_MONTHLY_FALLBACK_SOURCE = "NPS Visitor Use Statistics (Data.gov data package resource)"
@@ -90,6 +93,7 @@ IN_SCOPE_UNIT_CODES = {
 }
 
 METEOSTAT_DAILY_SOURCE = "Meteostat Point Daily"
+METEOSTAT_NEARBY_STATION_DAILY_SOURCE = "Meteostat Nearby Station Daily"
 
 # Representative point coordinates for each in-scope park. Points are intentionally
 # near well-known visitor-access areas and can optionally include elevation to improve
@@ -667,6 +671,7 @@ class MeteostatWeatherETL:
     """Extract and load Meteostat Point Daily weather history for in-scope parks."""
 
     source_label: str = METEOSTAT_DAILY_SOURCE
+    fallback_source_label: str = METEOSTAT_NEARBY_STATION_DAILY_SOURCE
     lookback_years: int = 3
 
     def run(
@@ -690,13 +695,12 @@ class MeteostatWeatherETL:
             source_frame = None if weather_data_by_slug is None else weather_data_by_slug.get(slug)
             frame = self._extract_park_daily_weather(
                 park_id=park.id,
+                park_slug=slug,
                 point=point,
                 start_date=start_date,
                 end_date=end_date,
                 source_frame=source_frame,
             )
-            if frame.empty:
-                continue
             frames.append(frame)
 
         if not frames:
@@ -704,7 +708,9 @@ class MeteostatWeatherETL:
 
         transformed = pd.concat(frames, ignore_index=True)
         ingested_at = datetime.now(timezone.utc)  # noqa: UP017
-        transformed["data_source"] = self.source_label
+        # preserve row-level source labels so fallback rows are visible in metadata
+        if "data_source" not in transformed.columns:
+            transformed["data_source"] = self.source_label
         # Meteostat Point Daily responses do not expose a dataset-level updated timestamp.
         # We persist caller-provided source_updated_at when available; otherwise None.
         transformed["source_updated_at"] = source_updated_at
@@ -716,33 +722,60 @@ class MeteostatWeatherETL:
     def _extract_park_daily_weather(
         self,
         park_id: int,
+        park_slug: str,
         point: dict[str, float],
         start_date: date,
         end_date: date,
         source_frame: pd.DataFrame | None,
     ) -> pd.DataFrame:
-        frame = (
-            source_frame
-            if source_frame is not None
-            else self._fetch_meteostat_point_daily(
+        if source_frame is not None:
+            frame = source_frame
+            weather_source = self.source_label
+            logger.info("Using provided weather frame for park=%s", park_slug)
+        else:
+            frame = self._fetch_meteostat_point_daily(
                 latitude=float(point["latitude"]),
                 longitude=float(point["longitude"]),
                 altitude=float(point["altitude"]) if "altitude" in point else None,
                 start_date=start_date,
                 end_date=end_date,
             )
-        )
+            weather_source = self.source_label
+            if frame.empty:
+                logger.warning(
+                    "Meteostat Point Daily returned no rows for park=%s; trying nearby station fallback",
+                    park_slug,
+                )
+                nearby_station_ids = self._discover_nearby_station_ids(
+                    latitude=float(point["latitude"]),
+                    longitude=float(point["longitude"]),
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+                for station_id in nearby_station_ids:
+                    candidate = self._fetch_meteostat_station_daily(
+                        station_id=station_id,
+                        start_date=start_date,
+                        end_date=end_date,
+                    )
+                    if candidate.empty:
+                        continue
+                    frame = candidate
+                    weather_source = self.fallback_source_label
+                    logger.info(
+                        "Using Meteostat nearby station fallback for park=%s station=%s",
+                        park_slug,
+                        station_id,
+                    )
+                    break
+            else:
+                logger.info("Using Meteostat Point Daily for park=%s", park_slug)
 
         if frame.empty:
-            return pd.DataFrame(
-                columns=[
-                    "park_id",
-                    "observation_date",
-                    "avg_temp_f",
-                    "min_temp_f",
-                    "max_temp_f",
-                    "precipitation_mm",
-                ]
+            raise RuntimeError(
+                "No usable Meteostat daily weather rows for park "
+                f"'{park_slug}' between {start_date} and {end_date} "
+                "from point-based or nearby-station fallback ingestion"
             )
 
         transformed = frame.copy()
@@ -769,6 +802,7 @@ class MeteostatWeatherETL:
             & (transformed["observation_date"] <= end_date)
         ]
         transformed = transformed.sort_values(["observation_date"])
+        transformed["data_source"] = weather_source
 
         return transformed[
             [
@@ -778,8 +812,116 @@ class MeteostatWeatherETL:
                 "min_temp_f",
                 "max_temp_f",
                 "precipitation_mm",
+                "data_source",
             ]
         ].drop_duplicates(subset=["park_id", "observation_date"], keep="last")
+
+    def _discover_nearby_station_ids(
+        self,
+        latitude: float,
+        longitude: float,
+        start_date: date,
+        end_date: date,
+        radius_km_options: tuple[int, ...] = (50, 100, 150),
+        limit: int = 20,
+    ) -> list[str]:
+        try:
+            from meteostat import Stations
+        except ImportError as exc:  # pragma: no cover - runtime guard
+            raise RuntimeError(
+                "Weather ETL requires meteostat. Install backend dependencies to run this ETL."
+            ) from exc
+
+        ranked_station_rows: list[dict[str, Any]] = []
+        for radius_km in radius_km_options:
+            stations = Stations().nearby(latitude, longitude, radius=radius_km * 1000).fetch(limit)
+            if stations.empty:
+                continue
+
+            frame = stations.reset_index()
+            if "id" not in frame.columns and "index" in frame.columns:
+                frame = frame.rename(columns={"index": "id"})
+
+            for row in frame.to_dict(orient="records"):
+                station_id = row.get("id")
+                if not station_id:
+                    continue
+                daily_start = pd.to_datetime(row.get("daily_start"), errors="coerce")
+                daily_end = pd.to_datetime(row.get("daily_end"), errors="coerce")
+                coverage_days = self._coverage_days(
+                    start_date=start_date,
+                    end_date=end_date,
+                    availability_start=daily_start.date() if not pd.isna(daily_start) else None,
+                    availability_end=daily_end.date() if not pd.isna(daily_end) else None,
+                )
+                distance_m = pd.to_numeric(row.get("distance"), errors="coerce")
+                ranked_station_rows.append(
+                    {
+                        "id": str(station_id),
+                        "coverage_days": coverage_days,
+                        "distance_m": float(distance_m) if not pd.isna(distance_m) else float("inf"),
+                    }
+                )
+
+        if not ranked_station_rows:
+            return []
+
+        ranked = sorted(
+            ranked_station_rows,
+            key=lambda row: (row["coverage_days"], -row["distance_m"]),
+            reverse=True,
+        )
+        unique_station_ids: list[str] = []
+        for row in ranked:
+            station_id = row["id"]
+            if station_id not in unique_station_ids:
+                unique_station_ids.append(station_id)
+        return unique_station_ids
+
+    def _fetch_meteostat_station_daily(
+        self,
+        station_id: str,
+        start_date: date,
+        end_date: date,
+    ) -> pd.DataFrame:
+        try:
+            from meteostat import Daily
+        except ImportError as exc:  # pragma: no cover - runtime guard
+            raise RuntimeError(
+                "Weather ETL requires meteostat. Install backend dependencies to run this ETL."
+            ) from exc
+
+        start_datetime = datetime.combine(start_date, datetime.min.time())
+        end_datetime = datetime.combine(end_date, datetime.min.time())
+        data = Daily(station_id, start=start_datetime, end=end_datetime).fetch()
+        if data.empty:
+            return pd.DataFrame(columns=["date", "tavg", "tmin", "tmax", "prcp"])
+
+        frame = data.reset_index()
+        if "time" in frame.columns and "date" not in frame.columns:
+            frame = frame.rename(columns={"time": "date"})
+        if "date" not in frame.columns:
+            frame["date"] = pd.to_datetime(frame.index)
+
+        for required in ["tavg", "tmin", "tmax", "prcp"]:
+            if required not in frame.columns:
+                frame[required] = np.nan if required != "prcp" else 0.0
+        return frame[["date", "tavg", "tmin", "tmax", "prcp"]]
+
+    def _coverage_days(
+        self,
+        start_date: date,
+        end_date: date,
+        availability_start: date | None,
+        availability_end: date | None,
+    ) -> int:
+        if availability_start is None or availability_end is None:
+            return 0
+        overlap_start = max(start_date, availability_start)
+        overlap_end = min(end_date, availability_end)
+        if overlap_end < overlap_start:
+            return 0
+        return (overlap_end - overlap_start).days + 1
 
     def _fetch_meteostat_point_daily(
         self,
