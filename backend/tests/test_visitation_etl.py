@@ -81,6 +81,25 @@ def _build_datagov_source_csv() -> bytes:
     return output.getvalue().encode("utf-8")
 
 
+def _build_datagov_summary_csv() -> bytes:
+    output = StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=["Month", "Statistic", "UnitCode", "Value", "Year"],
+    )
+    writer.writeheader()
+    writer.writerow(
+        {
+            "Month": "January",
+            "Statistic": "RecreationVisits",
+            "UnitCode": "NPS",
+            "Value": 12345,
+            "Year": 2024,
+        }
+    )
+    return output.getvalue().encode("utf-8")
+
+
 def _make_seeded_engine():
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
@@ -247,7 +266,12 @@ def test_visitation_etl_resolves_correct_datagov_package_and_falls_back_when_irm
                     "metadata_modified": "2025-03-01T00:00:00.000000",
                     "resources": [
                         {
-                            "name": "Main_Data.csv",
+                            "name": "Annual Park Recreation Visitation Monthly Summary.csv",
+                            "format": "CSV",
+                            "url": "https://example.test/Monthly_Summary.csv",
+                        },
+                        {
+                            "name": "Park Monthly Data",
                             "format": "CSV",
                             "url": "https://example.test/Main_Data.csv",
                         },
@@ -260,6 +284,8 @@ def test_visitation_etl_resolves_correct_datagov_package_and_falls_back_when_irm
                 },
             }
             return json.dumps(package).encode("utf-8")
+        if "example.test/Monthly_Summary.csv" in url:
+            return _build_datagov_summary_csv()
         if "example.test/Main_Data.csv" in url:
             return _build_datagov_source_csv()
         raise AssertionError(f"Unexpected URL: {url}")
@@ -290,7 +316,7 @@ def test_visitation_etl_raises_clear_error_when_required_columns_missing() -> No
     writer.writerow({"Park": "Yosemite National Park", "Date": "2024-01-01"})
 
     with Session(engine) as session:
-        with pytest.raises(ValueError, match="Unable to resolve required visitation column"):
+        with pytest.raises(ValueError, match="Unable to normalize visitation columns"):
             etl.run(session=session, csv_payload=output.getvalue().encode("utf-8"))
 
 
@@ -329,18 +355,20 @@ def test_visitation_etl_fallback_errors_when_datagov_resource_cannot_be_resolved
                         "title": "NPS Visitor Use Statistics Data Package, 2024",
                         "resources": [
                             {
-                                "name": "Documentation",
-                                "format": "HTML",
-                                "url": "https://example.test/docs",
+                                "name": "Monthly_Summary.csv",
+                                "format": "CSV",
+                                "url": "https://example.test/Monthly_Summary.csv",
                             }
                         ],
                     },
                 }
             ).encode("utf-8")
+        if "example.test/Monthly_Summary.csv" in url:
+            return _build_datagov_summary_csv()
         raise AssertionError(f"Unexpected URL: {url}")
 
     monkeypatch.setattr(etl, "_download_source_payload", fake_download)
 
     with Session(engine) as session:
-        with pytest.raises(RuntimeError, match="main visitation CSV resource"):
+        with pytest.raises(RuntimeError, match="park-level monthly visitation resource"):
             etl.run(session=session)

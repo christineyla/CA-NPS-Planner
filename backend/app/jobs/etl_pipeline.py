@@ -213,8 +213,7 @@ class NPSVisitationETL:
 
     def _download_datagov_fallback_payload(self) -> tuple[bytes, datetime | None]:
         package_metadata = self._download_datagov_package_metadata()
-        resource_url = self._select_datagov_primary_resource_url(package_metadata)
-        payload = self._download_source_payload(resource_url)
+        payload = self._select_datagov_primary_resource_payload(package_metadata)
         return payload, self._parse_datagov_updated_at(package_metadata)
 
     def _download_datagov_package_metadata(self) -> dict[str, Any]:
@@ -290,7 +289,7 @@ class NPSVisitationETL:
             or "unable to resolve Data.gov package metadata for NPS Visitor Use Statistics Data Package, 2024"
         )
 
-    def _select_datagov_primary_resource_url(self, package_metadata: dict[str, Any]) -> str:
+    def _select_datagov_primary_resource_payload(self, package_metadata: dict[str, Any]) -> bytes:
         resources = package_metadata.get("resources")
         if not isinstance(resources, list) or not resources:
             raise RuntimeError("Data.gov package did not include resources")
@@ -327,12 +326,45 @@ class NPSVisitationETL:
                 f"Available resources: {resource_descriptions}"
             )
 
-        resource_url = sorted_resources[0].get("url")
-        if not resource_url or not str(resource_url).strip():
-            raise RuntimeError(
-                "Data.gov primary visitation resource did not include a downloadable URL"
+        validation_errors: list[str] = []
+        for resource in sorted_resources:
+            resource_name = str(resource.get("name") or resource.get("id") or "unnamed")
+            resource_url = str(resource.get("url") or "").strip()
+            if not resource_url:
+                validation_errors.append(f"{resource_name}: missing download URL")
+                continue
+
+            try:
+                payload = self._download_source_payload(resource_url)
+                sample = self._read_monthly_visitation_frame(payload)
+            except Exception as exc:  # noqa: BLE001 - include candidate failure detail
+                validation_errors.append(f"{resource_name}: unreadable CSV ({exc})")
+                continue
+
+            can_map, missing = self._validate_visitation_resource_columns(sample)
+            if can_map:
+                return payload
+
+            validation_errors.append(
+                f"{resource_name}: missing required park-level visitation fields {missing}"
             )
-        return str(resource_url)
+
+        raise RuntimeError(
+            "Data.gov fallback could not identify a park-level monthly visitation resource "
+            "with mappable fields for ['park_name', 'month', 'visits']. "
+            f"Validation failures: {validation_errors}"
+        )
+
+    def _validate_visitation_resource_columns(self, frame: pd.DataFrame) -> tuple[bool, list[str]]:
+        available_by_normalized = {
+            self._normalize_column_name(column): column for column in frame.columns
+        }
+        missing_fields: list[str] = []
+        for expected_name, aliases in VISITATION_COLUMN_ALIASES.items():
+            if not any(alias in available_by_normalized for alias in aliases):
+                missing_fields.append(expected_name)
+
+        return len(missing_fields) == 0, missing_fields
 
     def _parse_datagov_updated_at(self, package_metadata: dict[str, Any]) -> datetime | None:
         for field in ("metadata_modified", "metadata_created"):
@@ -373,6 +405,15 @@ class NPSVisitationETL:
         )
 
     def _normalize_visitation_columns(self, frame: pd.DataFrame) -> pd.DataFrame:
+        is_valid, missing_fields = self._validate_visitation_resource_columns(frame)
+        if not is_valid:
+            available = ", ".join(sorted(str(column) for column in frame.columns))
+            raise ValueError(
+                "Unable to normalize visitation columns to required fields "
+                f"['park_name', 'month', 'visits']; missing columns for: {missing_fields}. "
+                f"Available columns: [{available}]"
+            )
+
         column_map: dict[str, str] = {}
         available_by_normalized = {
             self._normalize_column_name(column): column for column in frame.columns
