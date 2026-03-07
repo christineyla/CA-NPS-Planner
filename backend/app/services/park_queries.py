@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
-from app.models import CrowdCalendar, Park, ParkAlert, ParkVisitationForecast
+from app.models import CrowdCalendar, Park, ParkAlert, ParkVisitationForecast, ParkVisitationHistory
 from app.services.recommendations import get_best_weeks as rank_best_weeks
 from app.services.scoring import is_hidden_gem_week
 
@@ -32,6 +32,17 @@ def get_park_forecast(session: Session, park_id: int) -> Sequence[ParkVisitation
     """Return all forecast weeks for a park ordered by week start."""
 
     query = _forecast_base_query(park_id).order_by(ParkVisitationForecast.week_start)
+    return session.scalars(query).all()
+
+
+def get_park_visitation_history(session: Session, park_id: int) -> Sequence[ParkVisitationHistory]:
+    """Return monthly historical visits for a park ordered by observation month."""
+
+    query = (
+        select(ParkVisitationHistory)
+        .where(ParkVisitationHistory.park_id == park_id)
+        .order_by(ParkVisitationHistory.observation_month)
+    )
     return session.scalars(query).all()
 
 

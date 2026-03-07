@@ -40,10 +40,17 @@ export interface ForecastWeek {
   week_start: string;
   week_end: string;
   predicted_visits: number;
+  predicted_visits_lower?: number | null;
+  predicted_visits_upper?: number | null;
   crowd_score: number;
   weather_score: number;
   accessibility_score: number;
   trip_score: number;
+}
+
+export interface VisitationHistoryPoint {
+  observation_month: string;
+  visits: number;
 }
 
 export interface BestWeeksResponse {
@@ -83,6 +90,7 @@ export interface AccessibilityResponse {
 export interface ParkDashboardData {
   park: ParkDetail;
   forecast: ForecastWeek[];
+  history: VisitationHistoryPoint[];
   bestWeeks: BestWeeksResponse;
   calendar: CalendarWeek[];
   alerts: AlertResponse[];

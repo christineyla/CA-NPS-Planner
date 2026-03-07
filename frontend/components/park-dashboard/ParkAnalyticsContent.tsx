@@ -43,7 +43,7 @@ export function ParkAnalyticsContent({ data }: ParkAnalyticsContentProps) {
       ) : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <HistoricalForecastChart forecast={data.forecast} />
+        <HistoricalForecastChart forecast={data.forecast} history={data.history} />
         <BestWeeksList weeks={data.bestWeeks.top_weeks} />
       </div>
 

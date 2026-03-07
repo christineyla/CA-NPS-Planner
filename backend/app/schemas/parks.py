@@ -48,10 +48,19 @@ class ForecastWeek(BaseModel):
     week_start: date
     week_end: date
     predicted_visits: int
+    predicted_visits_lower: int | None = None
+    predicted_visits_upper: int | None = None
     crowd_score: float
     weather_score: float
     accessibility_score: float
     trip_score: float
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class VisitationHistoryPoint(BaseModel):
+    observation_month: date
+    visits: int
 
     model_config = ConfigDict(from_attributes=True)
 
