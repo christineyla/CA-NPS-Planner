@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import zipfile
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 from typing import Any
 
@@ -14,7 +14,7 @@ import pandas as pd
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.models import Park, ParkVisitationHistory
+from app.models import Park, ParkVisitationHistory, ParkWeatherHistory
 
 NPS_MONTHLY_SOURCE = "NPS Visitor Use Statistics (IRMA monthly visitation package)"
 NPS_MONTHLY_FALLBACK_SOURCE = "NPS Visitor Use Statistics (Data.gov data package resource)"
@@ -87,6 +87,19 @@ IN_SCOPE_UNIT_CODES = {
     "DEVA": "death-valley",
     "SEQU": "sequoia",
     "KICA": "kings-canyon",
+}
+
+METEOSTAT_DAILY_SOURCE = "Meteostat Point Daily"
+
+# Representative point coordinates for each in-scope park. Points are intentionally
+# near well-known visitor-access areas and can optionally include elevation to improve
+# Meteostat interpolation behavior for Point Daily queries.
+IN_SCOPE_PARK_WEATHER_POINTS = {
+    "yosemite": {"latitude": 37.7485, "longitude": -119.5870, "altitude": 1220},
+    "joshua-tree": {"latitude": 33.8734, "longitude": -115.9010, "altitude": 945},
+    "death-valley": {"latitude": 36.5054, "longitude": -117.0794, "altitude": -58},
+    "sequoia": {"latitude": 36.4864, "longitude": -118.5658, "altitude": 2200},
+    "kings-canyon": {"latitude": 36.7960, "longitude": -118.6749, "altitude": 1980},
 }
 
 
@@ -253,8 +266,7 @@ class NPSVisitationETL:
                 errors.append(f"{package_id}: {exc}")
 
         search_url = (
-            f"{DATA_GOV_PACKAGE_SEARCH_API_URL}?q={DATA_GOV_TARGET_DATASET_TITLE}"
-            "&rows=10"
+            f"{DATA_GOV_PACKAGE_SEARCH_API_URL}?q={DATA_GOV_TARGET_DATASET_TITLE}" "&rows=10"
         )
         try:
             payload = self._download_source_payload(search_url)
@@ -271,8 +283,7 @@ class NPSVisitationETL:
                 dataset
                 for dataset in datasets
                 if isinstance(dataset, dict)
-                and str(dataset.get("title", "")).lower()
-                == DATA_GOV_TARGET_DATASET_TITLE.lower()
+                and str(dataset.get("title", "")).lower() == DATA_GOV_TARGET_DATASET_TITLE.lower()
             ]
 
             ranked_candidates = exact_title_match or [d for d in datasets if isinstance(d, dict)]
@@ -291,7 +302,8 @@ class NPSVisitationETL:
                         if title.lower() == DATA_GOV_TARGET_DATASET_TITLE.lower():
                             return detail_result
                         errors.append(
-                            f"{package_name}: search candidate title mismatch '{title or dataset_title or 'unknown'}'"
+                            f"{package_name}: search candidate title mismatch '"
+                            f"{title or dataset_title or 'unknown'}'"
                         )
                         continue
                     errors.append(f"{package_name}: malformed package response")
@@ -302,7 +314,10 @@ class NPSVisitationETL:
 
         raise RuntimeError(
             "; ".join(errors)
-            or "unable to resolve Data.gov package metadata for NPS Visitor Use Statistics Data Package, 2024"
+            or (
+                "unable to resolve Data.gov package metadata for "
+                "NPS Visitor Use Statistics Data Package, 2024"
+            )
         )
 
     def _select_datagov_primary_resource_payload(self, package_metadata: dict[str, Any]) -> bytes:
@@ -432,7 +447,8 @@ class NPSVisitationETL:
         frame = frame.dropna(subset=["park_id"])
         if frame.empty:
             raise ValueError(
-                "No mapped park metadata rows found for in-scope UnitCode values in the selected source."
+                "No mapped park metadata rows found for in-scope UnitCode values "
+                "in the selected source."
             )
         frame["observation_month"] = pd.to_datetime(frame["month"], errors="coerce").dt.date
         frame["visits"] = pd.to_numeric(frame["visits"], errors="coerce")
@@ -636,6 +652,200 @@ class NPSVisitationETL:
                     park_id=int(row.park_id),
                     observation_month=row.observation_month,
                     visits=int(row.visits),
+                    data_source=str(row.data_source),
+                    source_updated_at=row.source_updated_at,
+                    ingested_at=row.ingested_at,
+                )
+                for row in transformed.itertuples(index=False)
+            ]
+        )
+        session.commit()
+
+
+@dataclass
+class MeteostatWeatherETL:
+    """Extract and load Meteostat Point Daily weather history for in-scope parks."""
+
+    source_label: str = METEOSTAT_DAILY_SOURCE
+    lookback_years: int = 3
+
+    def run(
+        self,
+        session: Session,
+        source_updated_at: datetime | None = None,
+        weather_data_by_slug: dict[str, pd.DataFrame] | None = None,
+    ) -> int:
+        """Load daily weather observations and return written row count."""
+
+        parks_by_slug = self._fetch_in_scope_parks(session)
+        if len(parks_by_slug) != len(IN_SCOPE_PARK_WEATHER_POINTS):
+            raise ValueError("Expected all in-scope parks to be present before running weather ETL")
+
+        frames: list[pd.DataFrame] = []
+        start_date, end_date = self._window_dates(reference_date=date.today())
+        for slug, park in parks_by_slug.items():
+            point = IN_SCOPE_PARK_WEATHER_POINTS.get(slug)
+            if point is None:
+                continue
+            source_frame = None if weather_data_by_slug is None else weather_data_by_slug.get(slug)
+            frame = self._extract_park_daily_weather(
+                park_id=park.id,
+                point=point,
+                start_date=start_date,
+                end_date=end_date,
+                source_frame=source_frame,
+            )
+            if frame.empty:
+                continue
+            frames.append(frame)
+
+        if not frames:
+            return 0
+
+        transformed = pd.concat(frames, ignore_index=True)
+        ingested_at = datetime.now(timezone.utc)  # noqa: UP017
+        transformed["data_source"] = self.source_label
+        # Meteostat Point Daily responses do not expose a dataset-level updated timestamp.
+        # We persist caller-provided source_updated_at when available; otherwise None.
+        transformed["source_updated_at"] = source_updated_at
+        transformed["ingested_at"] = ingested_at
+
+        self._replace_window(session, transformed=transformed)
+        return len(transformed)
+
+    def _extract_park_daily_weather(
+        self,
+        park_id: int,
+        point: dict[str, float],
+        start_date: date,
+        end_date: date,
+        source_frame: pd.DataFrame | None,
+    ) -> pd.DataFrame:
+        frame = (
+            source_frame
+            if source_frame is not None
+            else self._fetch_meteostat_point_daily(
+                latitude=float(point["latitude"]),
+                longitude=float(point["longitude"]),
+                altitude=float(point["altitude"]) if "altitude" in point else None,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        )
+
+        if frame.empty:
+            return pd.DataFrame(
+                columns=[
+                    "park_id",
+                    "observation_date",
+                    "avg_temp_f",
+                    "min_temp_f",
+                    "max_temp_f",
+                    "precipitation_mm",
+                ]
+            )
+
+        transformed = frame.copy()
+        transformed["observation_date"] = pd.to_datetime(
+            transformed["date"], errors="coerce"
+        ).dt.date
+        transformed["avg_temp_f"] = (
+            pd.to_numeric(transformed.get("tavg"), errors="coerce") * 9 / 5 + 32
+        )
+        transformed["min_temp_f"] = (
+            pd.to_numeric(transformed.get("tmin"), errors="coerce") * 9 / 5 + 32
+        )
+        transformed["max_temp_f"] = (
+            pd.to_numeric(transformed.get("tmax"), errors="coerce") * 9 / 5 + 32
+        )
+        transformed["precipitation_mm"] = pd.to_numeric(
+            transformed.get("prcp"), errors="coerce"
+        ).fillna(0.0)
+        transformed["park_id"] = park_id
+
+        transformed = transformed.dropna(subset=["observation_date"])
+        transformed = transformed[
+            (transformed["observation_date"] >= start_date)
+            & (transformed["observation_date"] <= end_date)
+        ]
+        transformed = transformed.sort_values(["observation_date"])
+
+        return transformed[
+            [
+                "park_id",
+                "observation_date",
+                "avg_temp_f",
+                "min_temp_f",
+                "max_temp_f",
+                "precipitation_mm",
+            ]
+        ].drop_duplicates(subset=["park_id", "observation_date"], keep="last")
+
+    def _fetch_meteostat_point_daily(
+        self,
+        latitude: float,
+        longitude: float,
+        start_date: date,
+        end_date: date,
+        altitude: float | None = None,
+    ) -> pd.DataFrame:
+        try:
+            from meteostat import Daily, Point
+        except ImportError as exc:  # pragma: no cover - runtime guard
+            raise RuntimeError(
+                "Weather ETL requires meteostat. Install backend dependencies to run this ETL."
+            ) from exc
+
+        point = Point(lat=latitude, lon=longitude, alt=altitude)
+        data = Daily(point, start=start_date, end=end_date).fetch()
+        if data.empty:
+            return pd.DataFrame(columns=["date", "tavg", "tmin", "tmax", "prcp"])
+
+        frame = data.reset_index()
+        if "time" in frame.columns and "date" not in frame.columns:
+            frame = frame.rename(columns={"time": "date"})
+        if "date" not in frame.columns:
+            frame["date"] = pd.to_datetime(frame.index)
+
+        for required in ["tavg", "tmin", "tmax", "prcp"]:
+            if required not in frame.columns:
+                frame[required] = np.nan if required != "prcp" else 0.0
+        return frame[["date", "tavg", "tmin", "tmax", "prcp"]]
+
+    def _window_dates(self, reference_date: date) -> tuple[date, date]:
+        end_date = reference_date - timedelta(days=1)
+        start_date = date(end_date.year - self.lookback_years + 1, 1, 1)
+        return start_date, end_date
+
+    def _fetch_in_scope_parks(self, session: Session) -> dict[str, Park]:
+        parks = (
+            session.execute(select(Park).where(Park.slug.in_(IN_SCOPE_PARK_WEATHER_POINTS.keys())))
+            .scalars()
+            .all()
+        )
+        return {park.slug: park for park in parks}
+
+    def _replace_window(self, session: Session, transformed: pd.DataFrame) -> None:
+        keys = transformed[["park_id", "observation_date"]].drop_duplicates()
+        min_observation_date = transformed["observation_date"].min()
+
+        park_ids = keys["park_id"].tolist()
+        session.execute(
+            delete(ParkWeatherHistory).where(
+                ParkWeatherHistory.park_id.in_(park_ids),
+                ParkWeatherHistory.observation_date >= min_observation_date,
+            )
+        )
+
+        session.add_all(
+            [
+                ParkWeatherHistory(
+                    park_id=int(row.park_id),
+                    observation_date=row.observation_date,
+                    avg_temp_f=None if pd.isna(row.avg_temp_f) else float(row.avg_temp_f),
+                    min_temp_f=None if pd.isna(row.min_temp_f) else float(row.min_temp_f),
+                    max_temp_f=None if pd.isna(row.max_temp_f) else float(row.max_temp_f),
+                    precipitation_mm=float(row.precipitation_mm),
                     data_source=str(row.data_source),
                     source_updated_at=row.source_updated_at,
                     ingested_at=row.ingested_at,

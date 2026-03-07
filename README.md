@@ -97,6 +97,39 @@ The ETL preserves an official-source strategy and downloads monthly recreation v
 
 Seeded mock data remains in place for other domains (weather/trends/alerts) that are not yet sourced by live ETL.
 
+
+## 4b) Load Real Meteostat Weather History (Point Daily ETL)
+
+After seeding, load real daily weather history for the same five in-scope parks:
+
+```bash
+./scripts/load-weather-etl.sh
+```
+
+This ETL uses **Meteostat Point Daily** (`meteostat.Daily` for a `meteostat.Point`) and requests daily observations by representative park latitude/longitude (with optional altitude). It then:
+
+- queries the last rolling 3-year historical window (`start = Jan 1 of (latest_year - 2)`, `end = yesterday`)
+- maps the resulting rows to internal park IDs for Yosemite, Joshua Tree, Death Valley, Sequoia, and Kings Canyon
+- stores daily weather in `park_weather_history` with:
+  - `observation_date`
+  - `avg_temp_f`
+  - `min_temp_f`
+  - `max_temp_f`
+  - `precipitation_mm`
+- writes ETL metadata fields: `data_source`, `source_updated_at`, and `ingested_at`
+- safely reruns by replacing overlapping park/day records in-window to prevent duplicates
+
+### Meteostat source timestamp assumption
+
+Meteostat Point Daily does not provide a clear dataset-level `source_updated_at` timestamp in query responses. Current behavior:
+
+- store `source_updated_at` when explicitly provided by the ETL caller
+- otherwise persist `NULL` and rely on `ingested_at` as the local load timestamp
+
+### Fallback behavior
+
+Seeded/mock weather behavior remains available wherever real weather rows are not yet present (for example, weather scoring falls back to the existing default assumptions when a forecast month has no weather history).
+
 ## 5) Run the App End-to-End
 
 Backend:
