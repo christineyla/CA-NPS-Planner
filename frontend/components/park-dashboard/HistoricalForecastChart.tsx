@@ -80,12 +80,34 @@ function pointToCoordinate(value: number, index: number, count: number, maxValue
   return [x, y];
 }
 
-function shouldRenderXAxisLabel(point: ChartPoint, previousPoint?: ChartPoint): boolean {
-  if (!previousPoint) {
+function shouldRenderXAxisLabel(points: ChartPoint[], pointIndex: number, forecastStartIndex: number): boolean {
+  const point = points[pointIndex];
+  if (!point) {
+    return false;
+  }
+
+  if (pointIndex === points.length - 1) {
     return true;
   }
 
-  return point.date.getMonth() !== previousPoint.date.getMonth() || point.date.getFullYear() !== previousPoint.date.getFullYear();
+  const isHistoryPoint = point.type === "history";
+  if (isHistoryPoint) {
+    if (pointIndex === 0) {
+      return true;
+    }
+
+    const month = point.date.getMonth();
+    const isQuarterStart = month % 3 === 0;
+    const isFinalHistoryPoint = forecastStartIndex > 0 && pointIndex === forecastStartIndex - 1;
+    return isQuarterStart || isFinalHistoryPoint;
+  }
+
+  const previousForecastPoint = points.slice(0, pointIndex).reverse().find((candidate) => candidate.type === "forecast");
+  if (!previousForecastPoint) {
+    return true;
+  }
+
+  return point.date.getMonth() !== previousForecastPoint.date.getMonth() || point.date.getFullYear() !== previousForecastPoint.date.getFullYear();
 }
 
 function buildPath(points: ChartPoint[], maxValue: number, type: PointType): string {
@@ -188,8 +210,7 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
           ) : null}
 
           {positionedPoints.map(({ point, index, coordinates }, pointIndex) => {
-            const previous = points[pointIndex - 1];
-            if (!shouldRenderXAxisLabel(point, previous) && pointIndex !== points.length - 1) {
+            if (!shouldRenderXAxisLabel(points, pointIndex, minForecastIndex)) {
               return null;
             }
 
