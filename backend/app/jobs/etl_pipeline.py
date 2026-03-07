@@ -45,6 +45,34 @@ IN_SCOPE_PARK_NAMES = {
     "Kings Canyon National Park": "kings-canyon",
 }
 
+VISITATION_COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
+    "park_name": (
+        "parkname",
+        "park_name",
+        "park name",
+        "unit_name",
+        "unit name",
+        "park",
+    ),
+    "month": (
+        "month",
+        "month_start",
+        "month start",
+        "monthstart",
+        "date",
+        "observation_month",
+    ),
+    "visits": (
+        "recreationvisits",
+        "recreation_visits",
+        "recreation visits",
+        "visits",
+        "totalvisits",
+        "total_visits",
+        "total visits",
+    ),
+}
+
 
 @dataclass
 class ETLPipeline:
@@ -322,9 +350,7 @@ class NPSVisitationETL:
     ) -> pd.DataFrame:
         frame = self._read_monthly_visitation_frame(payload)
 
-        frame = frame.rename(
-            columns={"ParkName": "park_name", "Month": "month", "RecreationVisits": "visits"}
-        )
+        frame = self._normalize_visitation_columns(frame)
         frame = frame[["park_name", "month", "visits"]].copy()
         frame["park_name"] = frame["park_name"].astype(str).str.strip()
         frame = frame[frame["park_name"].isin(IN_SCOPE_PARK_NAMES.keys())]
@@ -345,6 +371,39 @@ class NPSVisitationETL:
         return frame[["park_id", "observation_month", "visits"]].drop_duplicates(
             subset=["park_id", "observation_month"], keep="last"
         )
+
+    def _normalize_visitation_columns(self, frame: pd.DataFrame) -> pd.DataFrame:
+        column_map: dict[str, str] = {}
+        available_by_normalized = {
+            self._normalize_column_name(column): column for column in frame.columns
+        }
+
+        for expected_name, aliases in VISITATION_COLUMN_ALIASES.items():
+            resolved_source = next(
+                (available_by_normalized[alias] for alias in aliases if alias in available_by_normalized),
+                None,
+            )
+            if resolved_source is None:
+                available = ", ".join(sorted(str(column) for column in frame.columns))
+                raise ValueError(
+                    "Unable to resolve required visitation column "
+                    f"'{expected_name}'. Available columns: [{available}]"
+                )
+            column_map[resolved_source] = expected_name
+
+        normalized = frame.rename(columns=column_map)
+        if not {"park_name", "month", "visits"}.issubset(set(normalized.columns)):
+            available = ", ".join(sorted(str(column) for column in normalized.columns))
+            raise ValueError(
+                "Unable to normalize visitation columns to required fields "
+                "['park_name', 'month', 'visits']. "
+                f"Available columns after normalization: [{available}]"
+            )
+
+        return normalized
+
+    def _normalize_column_name(self, value: Any) -> str:
+        return " ".join(str(value).strip().lower().replace("_", " ").split())
 
     def _read_monthly_visitation_frame(self, payload: bytes) -> pd.DataFrame:
         if payload[:2] == b"PK":

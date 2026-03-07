@@ -50,6 +50,37 @@ def _build_source_csv() -> bytes:
     return output.getvalue().encode("utf-8")
 
 
+def _build_datagov_source_csv() -> bytes:
+    output = StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=["Park Name", "Month Start", "Recreation Visits", "Region"],
+    )
+    writer.writeheader()
+
+    in_scope = [
+        "Yosemite National Park",
+        "Joshua Tree National Park",
+        "Death Valley National Park",
+        "Sequoia National Park",
+        "Kings Canyon National Park",
+    ]
+
+    for park_name in in_scope:
+        for year in [2021, 2022, 2023, 2024]:
+            for month in [1, 7]:
+                writer.writerow(
+                    {
+                        "Park Name": park_name,
+                        "Month Start": f"{year}-{month:02d}-01",
+                        "Recreation Visits": (year - 2020) * 1000 + month,
+                        "Region": "Pacific West",
+                    }
+                )
+
+    return output.getvalue().encode("utf-8")
+
+
 def _make_seeded_engine():
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
@@ -230,7 +261,7 @@ def test_visitation_etl_resolves_correct_datagov_package_and_falls_back_when_irm
             }
             return json.dumps(package).encode("utf-8")
         if "example.test/Main_Data.csv" in url:
-            return _build_source_csv()
+            return _build_datagov_source_csv()
         raise AssertionError(f"Unexpected URL: {url}")
 
     monkeypatch.setattr(etl, "_download_source_payload", fake_download)
@@ -247,6 +278,20 @@ def test_visitation_etl_resolves_correct_datagov_package_and_falls_back_when_irm
     assert any("package_show?id=official-2024-package" in url for url in calls)
     assert any("example.test/Main_Data.csv" in url for url in calls)
     assert all(row.data_source == etl.fallback_source_label for row in history)
+
+
+def test_visitation_etl_raises_clear_error_when_required_columns_missing() -> None:
+    engine = _make_seeded_engine()
+    etl = NPSVisitationETL(lookback_years=3)
+
+    output = StringIO()
+    writer = csv.DictWriter(output, fieldnames=["Park", "Date"])
+    writer.writeheader()
+    writer.writerow({"Park": "Yosemite National Park", "Date": "2024-01-01"})
+
+    with Session(engine) as session:
+        with pytest.raises(ValueError, match="Unable to resolve required visitation column"):
+            etl.run(session=session, csv_payload=output.getvalue().encode("utf-8"))
 
 
 def test_visitation_etl_raises_clear_error_when_irma_and_datagov_fail(

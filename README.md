@@ -57,6 +57,16 @@ docker run --name ca-nps-redis -p 6379:6379 -d redis:7
 
 If Redis is unavailable, APIs continue to work without cached responses.
 
+### Python dependency note (local dev)
+
+`backend/requirements.txt` intentionally omits `psycopg2-binary` so local setup on newer Python
+versions (including Python 3.13) is not blocked by PostgreSQL driver wheel availability when
+developing against SQLite/in-memory tests.
+
+For production or local PostgreSQL parity, install an explicit Postgres driver in your runtime
+environment (for example `psycopg[binary]` or `psycopg2-binary`) and keep it pinned in deployment
+configuration.
+
 ## 3) Seed Mock Data
 
 Run the backend seed script:
