@@ -41,6 +41,11 @@ class Park(Base):
         back_populates="park",
         cascade="all, delete-orphan",
     )
+    weather_history = relationship(
+        "ParkWeatherHistory",
+        back_populates="park",
+        cascade="all, delete-orphan",
+    )
     crowd_calendar_entries = relationship(
         "CrowdCalendar",
         back_populates="park",

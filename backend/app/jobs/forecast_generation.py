@@ -8,9 +8,13 @@ import pandas as pd
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
-from app.models import Park, ParkVisitationForecast, ParkVisitationHistory
+from app.models import Park, ParkVisitationForecast, ParkVisitationHistory, ParkWeatherHistory
 from app.services.forecasting import ForecastRunner
-from app.services.scoring import calculate_crowd_score, calculate_trip_score, calculate_weather_score
+from app.services.scoring import (
+    calculate_crowd_score,
+    calculate_trip_score,
+    calculate_weather_score,
+)
 
 
 @dataclass
@@ -43,10 +47,19 @@ class ForecastGenerationJob:
             )
             historical_weekly = self._approximate_historical_weekly(monthly_history)
 
-            session.execute(delete(ParkVisitationForecast).where(ParkVisitationForecast.park_id == park.id))
+            session.execute(
+                delete(ParkVisitationForecast).where(ParkVisitationForecast.park_id == park.id)
+            )
+            weather_by_month = self._load_monthly_weather_by_month_start(
+                session=session,
+                park_id=park.id,
+            )
 
             for _, row in weekly_forecasts.iterrows():
-                weather_score = calculate_weather_score(temperature_f=68.0, precipitation_probability=20)
+                weather_score = self._weather_score_for_week(
+                    weather_by_month=weather_by_month,
+                    month_start=row["month_start"],
+                )
                 crowd_score = calculate_crowd_score(
                     predicted_weekly_visits=int(row["predicted_visits"]),
                     historical_weekly_visits=historical_weekly,
@@ -88,3 +101,49 @@ class ForecastGenerationJob:
 
     def _approximate_historical_weekly(self, monthly_history: pd.DataFrame) -> list[int]:
         return (monthly_history["visits"] / 4.345).round().astype(int).tolist()
+
+    def _load_monthly_weather_by_month_start(
+        self, session: Session, park_id: int
+    ) -> dict[pd.Timestamp, tuple[float, float]]:
+        rows = (
+            session.query(ParkWeatherHistory)
+            .where(ParkWeatherHistory.park_id == park_id)
+            .order_by(ParkWeatherHistory.observation_date.asc())
+            .all()
+        )
+        if not rows:
+            return {}
+
+        frame = pd.DataFrame(
+            {
+                "observation_date": [pd.Timestamp(row.observation_date) for row in rows],
+                "avg_temp_f": [row.avg_temp_f for row in rows],
+                "precipitation_mm": [row.precipitation_mm for row in rows],
+            }
+        )
+        frame["month_start"] = frame["observation_date"].dt.to_period("M").dt.to_timestamp()
+        monthly = (
+            frame.groupby("month_start", as_index=False)
+            .agg(avg_temp_f=("avg_temp_f", "mean"), precipitation_mm=("precipitation_mm", "mean"))
+            .fillna({"precipitation_mm": 0.0})
+        )
+        return {
+            row.month_start: (float(row.avg_temp_f), float(row.precipitation_mm))
+            for row in monthly.itertuples(index=False)
+        }
+
+    def _weather_score_for_week(
+        self,
+        weather_by_month: dict[pd.Timestamp, tuple[float, float]],
+        month_start: pd.Timestamp,
+    ) -> float:
+        monthly_weather = weather_by_month.get(pd.Timestamp(month_start))
+        if monthly_weather is None:
+            return calculate_weather_score(temperature_f=68.0, precipitation_probability=20)
+
+        avg_temp_f, avg_precip_mm = monthly_weather
+        precipitation_probability = max(0.0, min(100.0, avg_precip_mm * 10.0))
+        return calculate_weather_score(
+            temperature_f=avg_temp_f,
+            precipitation_probability=precipitation_probability,
+        )
