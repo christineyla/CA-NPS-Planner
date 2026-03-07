@@ -73,6 +73,22 @@ VISITATION_COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
     ),
 }
 
+CODED_VISITATION_COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
+    "unit_code": ("unitcode", "unit_code", "unit code"),
+    "year": ("year",),
+    "month": ("month",),
+    "statistic": ("statistic",),
+    "value": ("value",),
+}
+
+IN_SCOPE_UNIT_CODES = {
+    "YOSE": "yosemite",
+    "JOTR": "joshua-tree",
+    "DEVA": "death-valley",
+    "SEQU": "sequoia",
+    "KICA": "kings-canyon",
+}
+
 
 @dataclass
 class ETLPipeline:
@@ -356,14 +372,33 @@ class NPSVisitationETL:
         )
 
     def _validate_visitation_resource_columns(self, frame: pd.DataFrame) -> tuple[bool, list[str]]:
+        normalized_valid, normalized_missing = self._missing_fields(
+            frame=frame, aliases=VISITATION_COLUMN_ALIASES
+        )
+        if normalized_valid:
+            return True, []
+
+        coded_valid, coded_missing = self._missing_fields(
+            frame=frame, aliases=CODED_VISITATION_COLUMN_ALIASES
+        )
+        if coded_valid:
+            return True, []
+
+        return False, [
+            f"legacy={normalized_missing}",
+            f"coded={coded_missing}",
+        ]
+
+    def _missing_fields(
+        self, frame: pd.DataFrame, aliases: dict[str, tuple[str, ...]]
+    ) -> tuple[bool, list[str]]:
         available_by_normalized = {
             self._normalize_column_name(column): column for column in frame.columns
         }
         missing_fields: list[str] = []
-        for expected_name, aliases in VISITATION_COLUMN_ALIASES.items():
-            if not any(alias in available_by_normalized for alias in aliases):
+        for expected_name, field_aliases in aliases.items():
+            if not any(alias in available_by_normalized for alias in field_aliases):
                 missing_fields.append(expected_name)
-
         return len(missing_fields) == 0, missing_fields
 
     def _parse_datagov_updated_at(self, package_metadata: dict[str, Any]) -> datetime | None:
@@ -382,6 +417,9 @@ class NPSVisitationETL:
     ) -> pd.DataFrame:
         frame = self._read_monthly_visitation_frame(payload)
 
+        if self._missing_fields(frame=frame, aliases=CODED_VISITATION_COLUMN_ALIASES)[0]:
+            return self._transform_coded_visitation_frame(frame=frame, parks_by_slug=parks_by_slug)
+
         frame = self._normalize_visitation_columns(frame)
         frame = frame[["park_name", "month", "visits"]].copy()
         frame["park_name"] = frame["park_name"].astype(str).str.strip()
@@ -391,6 +429,11 @@ class NPSVisitationETL:
         frame["park_id"] = frame["park_slug"].map(
             {slug: park.id for slug, park in parks_by_slug.items()}
         )
+        frame = frame.dropna(subset=["park_id"])
+        if frame.empty:
+            raise ValueError(
+                "No mapped park metadata rows found for in-scope UnitCode values in the selected source."
+            )
         frame["observation_month"] = pd.to_datetime(frame["month"], errors="coerce").dt.date
         frame["visits"] = pd.to_numeric(frame["visits"], errors="coerce")
         frame = frame.dropna(subset=["park_id", "observation_month", "visits"])
@@ -404,13 +447,111 @@ class NPSVisitationETL:
             subset=["park_id", "observation_month"], keep="last"
         )
 
+    def _transform_coded_visitation_frame(
+        self, frame: pd.DataFrame, parks_by_slug: dict[str, Park]
+    ) -> pd.DataFrame:
+        frame = self._normalize_visitation_columns_by_aliases(
+            frame=frame,
+            aliases=CODED_VISITATION_COLUMN_ALIASES,
+            error_context="['unit_code', 'year', 'month', 'statistic', 'value']",
+        )
+        frame = frame[["unit_code", "year", "month", "statistic", "value"]].copy()
+
+        # Data.gov coded schema uses TV for total monthly visits; this is the overall
+        # crowd-forecasting signal for this product and should be the only main visits metric.
+        frame["statistic"] = frame["statistic"].astype(str).str.strip().str.upper()
+        frame = frame[frame["statistic"] == "TV"]
+        if frame.empty:
+            raise ValueError(
+                "No visitation rows with Statistic == 'TV' were found in the selected source. "
+                "TV is required as the primary total monthly visitation metric."
+            )
+
+        frame["unit_code"] = frame["unit_code"].astype(str).str.strip().str.upper()
+        frame["park_slug"] = frame["unit_code"].map(IN_SCOPE_UNIT_CODES)
+        frame = frame[frame["park_slug"].isin(IN_SCOPE_PARK_NAMES.values())]
+        if frame.empty:
+            raise ValueError(
+                "No in-scope park UnitCode values could be mapped from Statistic == 'TV' rows. "
+                f"Expected one of: {sorted(IN_SCOPE_UNIT_CODES)}"
+            )
+
+        frame["park_id"] = frame["park_slug"].map(
+            {slug: park.id for slug, park in parks_by_slug.items()}
+        )
+
+        frame["observation_month"] = pd.to_datetime(
+            frame["year"].astype(str).str.strip()
+            + "-"
+            + frame["month"].astype(str).str.strip()
+            + "-01",
+            errors="coerce",
+        ).dt.date
+        missing_months = frame["observation_month"].isna()
+        if missing_months.any():
+            frame.loc[missing_months, "observation_month"] = pd.to_datetime(
+                frame.loc[missing_months, "year"].astype(str).str.strip()
+                + " "
+                + frame.loc[missing_months, "month"].astype(str).str.strip()
+                + " 1",
+                errors="coerce",
+            ).dt.date
+
+        frame["visits"] = pd.to_numeric(frame["value"], errors="coerce")
+        frame = frame.dropna(subset=["park_id", "observation_month", "visits"])
+        if frame.empty:
+            raise ValueError(
+                "Statistic == 'TV' rows were present but none could be transformed into valid "
+                "(park_id, observation_month, visits) records."
+            )
+        frame["park_id"] = frame["park_id"].astype(int)
+        frame["visits"] = frame["visits"].round().astype(int)
+
+        cutoff = self._window_start(reference_date=max(frame["observation_month"]))
+        frame = frame[frame["observation_month"] >= cutoff]
+        frame = frame.sort_values(["park_id", "observation_month"])
+        return frame[["park_id", "observation_month", "visits"]].drop_duplicates(
+            subset=["park_id", "observation_month"], keep="last"
+        )
+
     def _normalize_visitation_columns(self, frame: pd.DataFrame) -> pd.DataFrame:
+        if self._missing_fields(frame=frame, aliases=VISITATION_COLUMN_ALIASES)[0]:
+            return self._normalize_visitation_columns_by_aliases(
+                frame=frame,
+                aliases=VISITATION_COLUMN_ALIASES,
+                error_context="['park_name', 'month', 'visits']",
+            )
+
+        if self._missing_fields(frame=frame, aliases=CODED_VISITATION_COLUMN_ALIASES)[0]:
+            return self._normalize_visitation_columns_by_aliases(
+                frame=frame,
+                aliases=CODED_VISITATION_COLUMN_ALIASES,
+                error_context="['unit_code', 'year', 'month', 'statistic', 'value']",
+            )
+
         is_valid, missing_fields = self._validate_visitation_resource_columns(frame)
+        if is_valid:
+            return frame
+
+        available = ", ".join(sorted(str(column) for column in frame.columns))
+        raise ValueError(
+            "Unable to normalize visitation columns to required fields for either legacy "
+            "or coded datasets; missing columns for: "
+            f"{missing_fields}. Available columns: [{available}]"
+        )
+
+    def _normalize_visitation_columns_by_aliases(
+        self,
+        frame: pd.DataFrame,
+        aliases: dict[str, tuple[str, ...]],
+        error_context: str,
+    ) -> pd.DataFrame:
+        is_valid, missing_fields = self._missing_fields(frame=frame, aliases=aliases)
         if not is_valid:
             available = ", ".join(sorted(str(column) for column in frame.columns))
             raise ValueError(
                 "Unable to normalize visitation columns to required fields "
-                f"['park_name', 'month', 'visits']; missing columns for: {missing_fields}. "
+                f"{error_context}; missing columns for: {missing_fields}. "
                 f"Available columns: [{available}]"
             )
 
@@ -419,9 +560,13 @@ class NPSVisitationETL:
             self._normalize_column_name(column): column for column in frame.columns
         }
 
-        for expected_name, aliases in VISITATION_COLUMN_ALIASES.items():
+        for expected_name, column_aliases in aliases.items():
             resolved_source = next(
-                (available_by_normalized[alias] for alias in aliases if alias in available_by_normalized),
+                (
+                    available_by_normalized[alias]
+                    for alias in column_aliases
+                    if alias in available_by_normalized
+                ),
                 None,
             )
             if resolved_source is None:
@@ -433,11 +578,12 @@ class NPSVisitationETL:
             column_map[resolved_source] = expected_name
 
         normalized = frame.rename(columns=column_map)
-        if not {"park_name", "month", "visits"}.issubset(set(normalized.columns)):
+        expected_columns = set(aliases.keys())
+        if not expected_columns.issubset(set(normalized.columns)):
             available = ", ".join(sorted(str(column) for column in normalized.columns))
             raise ValueError(
                 "Unable to normalize visitation columns to required fields "
-                "['park_name', 'month', 'visits']. "
+                f"{error_context}. "
                 f"Available columns after normalization: [{available}]"
             )
 

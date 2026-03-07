@@ -81,6 +81,49 @@ def _build_datagov_source_csv() -> bytes:
     return output.getvalue().encode("utf-8")
 
 
+def _build_coded_datagov_source_csv() -> bytes:
+    output = StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=["UnitCode", "Year", "Month", "Statistic", "Value"],
+    )
+    writer.writeheader()
+
+    in_scope = ["YOSE", "JOTR", "DEVA", "SEQU", "KICA"]
+    for unit_code in in_scope:
+        for year in [2021, 2022, 2023, 2024]:
+            for month in [1, 7]:
+                writer.writerow(
+                    {
+                        "UnitCode": unit_code,
+                        "Year": year,
+                        "Month": month,
+                        "Statistic": "TV",
+                        "Value": (year - 2020) * 1000 + month,
+                    }
+                )
+                writer.writerow(
+                    {
+                        "UnitCode": unit_code,
+                        "Year": year,
+                        "Month": month,
+                        "Statistic": "TRV",
+                        "Value": 999999,
+                    }
+                )
+
+    writer.writerow(
+        {
+            "UnitCode": "PINN",
+            "Year": 2024,
+            "Month": 7,
+            "Statistic": "TV",
+            "Value": 111111,
+        }
+    )
+    return output.getvalue().encode("utf-8")
+
+
 def _build_datagov_summary_csv() -> bytes:
     output = StringIO()
     writer = csv.DictWriter(
@@ -320,6 +363,79 @@ def test_visitation_etl_raises_clear_error_when_required_columns_missing() -> No
             etl.run(session=session, csv_payload=output.getvalue().encode("utf-8"))
 
 
+def test_visitation_etl_supports_coded_datagov_schema() -> None:
+    engine = _make_seeded_engine()
+    etl = NPSVisitationETL(lookback_years=3)
+
+    with Session(engine) as session:
+        loaded = etl.run(
+            session=session,
+            csv_payload=_build_coded_datagov_source_csv(),
+            source_updated_at=datetime(2025, 3, 1, tzinfo=timezone.utc),  # noqa: UP017
+        )
+
+    with Session(engine) as session:
+        history = session.scalars(select(ParkVisitationHistory)).all()
+
+    assert loaded == 5 * 6
+    assert len(history) == loaded
+    assert {row.park_id for row in history} == {1, 2, 3, 4, 5}
+    assert min(row.observation_month for row in history) == date(2022, 1, 1)
+    assert max(row.observation_month for row in history) == date(2024, 7, 1)
+    assert all(row.visits < 999999 for row in history)
+    assert any(row.visits == 2001 for row in history)
+
+
+def test_visitation_etl_fails_when_coded_source_has_no_tv_rows() -> None:
+    engine = _make_seeded_engine()
+    etl = NPSVisitationETL(lookback_years=3)
+
+    output = StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=["UnitCode", "Year", "Month", "Statistic", "Value"],
+    )
+    writer.writeheader()
+    writer.writerow(
+        {
+            "UnitCode": "YOSE",
+            "Year": 2024,
+            "Month": 7,
+            "Statistic": "TRV",
+            "Value": 12345,
+        }
+    )
+
+    with Session(engine) as session:
+        with pytest.raises(ValueError, match="Statistic == 'TV'"):
+            etl.run(session=session, csv_payload=output.getvalue().encode("utf-8"))
+
+
+def test_visitation_etl_fails_when_unit_codes_are_not_mappable() -> None:
+    engine = _make_seeded_engine()
+    etl = NPSVisitationETL(lookback_years=3)
+
+    output = StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=["UnitCode", "Year", "Month", "Statistic", "Value"],
+    )
+    writer.writeheader()
+    writer.writerow(
+        {
+            "UnitCode": "ABCD",
+            "Year": 2024,
+            "Month": 7,
+            "Statistic": "TV",
+            "Value": 12345,
+        }
+    )
+
+    with Session(engine) as session:
+        with pytest.raises(ValueError, match="UnitCode"):
+            etl.run(session=session, csv_payload=output.getvalue().encode("utf-8"))
+
+
 def test_visitation_etl_raises_clear_error_when_irma_and_datagov_fail(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -338,7 +454,7 @@ def test_visitation_etl_raises_clear_error_when_irma_and_datagov_fail(
             etl.run(session=session)
 
 
-def test_visitation_etl_fallback_errors_when_datagov_resource_cannot_be_resolved(
+def test_visitation_etl_fallback_errors_when_datagov_resource_has_no_tv_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     engine = _make_seeded_engine()
@@ -370,5 +486,5 @@ def test_visitation_etl_fallback_errors_when_datagov_resource_cannot_be_resolved
     monkeypatch.setattr(etl, "_download_source_payload", fake_download)
 
     with Session(engine) as session:
-        with pytest.raises(RuntimeError, match="park-level monthly visitation resource"):
+        with pytest.raises(ValueError, match="Statistic == 'TV'"):
             etl.run(session=session)
