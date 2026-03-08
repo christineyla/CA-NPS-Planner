@@ -173,6 +173,33 @@ Google Trends values are **normalized relative trend scores** (typically on a 0-
 
 Forecast generation consumes trend history when present and continues to use existing fallback behavior when trend rows are unavailable for a park/week.
 
+## 4d) Generate Forecasts + Refresh Crowd Calendar
+
+After running visitation, weather, and trends ETLs, regenerate forecasts for all five in-scope parks:
+
+```bash
+./scripts/run-forecast-generation.sh
+```
+
+This forecast run:
+
+- loads the latest monthly visitation history for each park
+- uses weather and trends history when present
+- preserves fallback behavior when weather/trends are missing
+- replaces each park forecast window in `park_visitation_forecast` on rerun (duplicate-safe)
+- refreshes `crowd_calendar` rows from the newly written forecasts
+- writes forecast metadata fields (`forecast_generated_at`, `model_trained_at`, `data_cutoff_date`, `model_version`)
+
+### Recommended local execution order
+
+```bash
+./scripts/seed-backend-db.sh
+./scripts/load-visitation-etl.sh
+./scripts/load-weather-etl.sh
+./scripts/load-trends-etl.sh
+./scripts/run-forecast-generation.sh
+```
+
 ## 5) Run the App End-to-End
 
 Backend:

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date, datetime, timezone
 
 import pandas as pd
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from app.models import (
+    CrowdCalendar,
     Park,
     ParkTrendHistory,
     ParkVisitationForecast,
@@ -28,14 +30,20 @@ class ForecastGenerationJob:
     """Generate park-specific 26-week forecasts and persist to forecast table."""
 
     forecast_runner: ForecastRunner = field(default_factory=ForecastRunner)
+    model_version: str = "forecast-pipeline-v1"
 
     def run(
         self,
         session: Session,
         horizon_weeks: int = 26,
         seed: int = 42,
+        generated_at: datetime | None = None,
+        model_trained_at: datetime | None = None,
     ) -> int:
         """Create forecast rows for all parks and return row count written."""
+
+        run_generated_at = generated_at or datetime.now(timezone.utc)
+        run_model_trained_at = model_trained_at or run_generated_at
 
         parks = session.query(Park).order_by(Park.id.asc()).all()
         written_rows = 0
@@ -54,10 +62,20 @@ class ForecastGenerationJob:
                 weekly_trend_history=trend_history,
             )
             historical_weekly = self._approximate_historical_weekly(monthly_history)
+            data_cutoff_date = self._derive_data_cutoff_date(
+                monthly_history=monthly_history,
+                weather_by_month=self._load_monthly_weather_by_month_start(
+                    session=session,
+                    park_id=park.id,
+                ),
+                trend_history=trend_history,
+            )
 
+            session.execute(delete(CrowdCalendar).where(CrowdCalendar.park_id == park.id))
             session.execute(
                 delete(ParkVisitationForecast).where(ParkVisitationForecast.park_id == park.id)
             )
+
             weather_by_month = self._load_monthly_weather_by_month_start(
                 session=session,
                 park_id=park.id,
@@ -86,9 +104,16 @@ class ForecastGenerationJob:
                     weather_score=weather_score,
                     accessibility_score=park.accessibility_score,
                     trip_score=trip_score,
+                    forecast_generated_at=run_generated_at,
+                    model_trained_at=run_model_trained_at,
+                    data_cutoff_date=data_cutoff_date,
+                    model_version=self.model_version,
                 )
                 session.add(forecast_record)
                 written_rows += 1
+
+            session.flush()
+            self._refresh_crowd_calendar_for_park(session=session, park_id=park.id)
 
         session.commit()
         return written_rows
@@ -177,3 +202,49 @@ class ForecastGenerationJob:
             temperature_f=avg_temp_f,
             precipitation_probability=precipitation_probability,
         )
+
+    def _derive_data_cutoff_date(
+        self,
+        monthly_history: pd.DataFrame,
+        weather_by_month: dict[pd.Timestamp, tuple[float, float]],
+        trend_history: pd.DataFrame,
+    ) -> date:
+        latest_visitation = monthly_history["month_start"].max().date()
+        candidate_dates: list[date] = [latest_visitation]
+
+        if weather_by_month:
+            candidate_dates.append(max(weather_by_month.keys()).date())
+
+        if not trend_history.empty:
+            candidate_dates.append(trend_history["week_start"].max().date())
+
+        return max(candidate_dates)
+
+    def _refresh_crowd_calendar_for_park(self, session: Session, park_id: int) -> None:
+        forecasts = (
+            session.query(ParkVisitationForecast)
+            .where(ParkVisitationForecast.park_id == park_id)
+            .order_by(ParkVisitationForecast.week_start.asc())
+            .all()
+        )
+
+        for forecast in forecasts:
+            level, color = self._crowd_level(forecast.crowd_score)
+            session.add(
+                CrowdCalendar(
+                    park_id=park_id,
+                    forecast_id=forecast.id,
+                    crowd_level=level,
+                    color_hex=color,
+                    crowd_score=forecast.crowd_score,
+                )
+            )
+
+    def _crowd_level(self, crowd_score: float) -> tuple[str, str]:
+        if crowd_score <= 30:
+            return "low", "#16A34A"
+        if crowd_score <= 60:
+            return "moderate", "#EAB308"
+        if crowd_score <= 80:
+            return "busy", "#F97316"
+        return "extreme", "#DC2626"
