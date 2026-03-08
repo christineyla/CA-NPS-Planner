@@ -24,6 +24,7 @@ class WeeklyDisaggregator:
         self,
         monthly_forecast: pd.DataFrame,
         horizon_weeks: int = 26,
+        start_date: pd.Timestamp | None = None,
         seasonal_weights: dict[int, float] | None = None,
         holiday_weeks: set[pd.Timestamp] | None = None,
         seed: int = 42,
@@ -34,8 +35,8 @@ class WeeklyDisaggregator:
         seasonal_weights = seasonal_weights or {}
         holiday_weeks = holiday_weeks or set()
 
-        start_date = monthly_forecast["month_start"].min()
-        weekly = self._weekly_boundaries(start_date=start_date, horizon_weeks=horizon_weeks)
+        forecast_start = start_date or monthly_forecast["month_start"].min()
+        weekly = self._weekly_boundaries(start_date=forecast_start, horizon_weeks=horizon_weeks)
 
         monthly_lookup = monthly_forecast.set_index("month_start")["predicted_visits"].to_dict()
         weekly["monthly_total"] = weekly["month_start"].map(monthly_lookup).fillna(0).astype(float)
