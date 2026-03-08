@@ -59,9 +59,13 @@ export function ParkAnalyticsContent({ data }: ParkAnalyticsContentProps) {
         </section>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <HistoricalForecastChart forecast={data.forecast} history={data.history} />
-        <BestWeeksList weeks={data.bestWeeks.top_weeks} />
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <HistoricalForecastChart forecast={data.forecast} history={data.history} />
+        </div>
+        <div className="lg:col-span-1">
+          <BestWeeksList weeks={data.bestWeeks.top_weeks} />
+        </div>
       </div>
 
       <HiddenGemBadges weeks={data.bestWeeks.hidden_gem_weeks} />
