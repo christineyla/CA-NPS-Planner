@@ -36,4 +36,8 @@ class FeatureEngineer:
         if "sme_index" not in frame:
             frame["sme_index"] = 50.0
 
+        frame["weather_anomaly"] = frame["weather_anomaly"].fillna(0.0)
+        frame["google_trends_index"] = frame["google_trends_index"].fillna(50.0)
+        frame["sme_index"] = frame["sme_index"].fillna(50.0)
+
         return frame

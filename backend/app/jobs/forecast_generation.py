@@ -8,7 +8,13 @@ import pandas as pd
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
-from app.models import Park, ParkVisitationForecast, ParkVisitationHistory, ParkWeatherHistory
+from app.models import (
+    Park,
+    ParkTrendHistory,
+    ParkVisitationForecast,
+    ParkVisitationHistory,
+    ParkWeatherHistory,
+)
 from app.services.forecasting import ForecastRunner
 from app.services.scoring import (
     calculate_crowd_score,
@@ -39,11 +45,13 @@ class ForecastGenerationJob:
             if monthly_history.empty:
                 continue
 
+            trend_history = self._load_weekly_trend_history(session=session, park_id=park.id)
             weekly_forecasts = self.forecast_runner.run_for_park(
                 park_id=park.id,
                 monthly_history=monthly_history,
                 horizon_weeks=horizon_weeks,
                 seed=seed,
+                weekly_trend_history=trend_history,
             )
             historical_weekly = self._approximate_historical_weekly(monthly_history)
 
@@ -98,6 +106,28 @@ class ForecastGenerationJob:
                 "visits": [row.visits for row in rows],
             }
         )
+
+    def _load_weekly_trend_history(self, session: Session, park_id: int) -> pd.DataFrame:
+        rows = (
+            session.query(ParkTrendHistory)
+            .where(ParkTrendHistory.park_id == park_id)
+            .order_by(ParkTrendHistory.observation_date.asc())
+            .all()
+        )
+        if not rows:
+            return pd.DataFrame(columns=["week_start", "google_trends_index"])
+
+        frame = pd.DataFrame(
+            {
+                "observation_date": [pd.Timestamp(row.observation_date) for row in rows],
+                "google_trends_index": [row.google_trends_index for row in rows],
+            }
+        )
+        frame["week_start"] = frame["observation_date"].dt.to_period("W-SUN").dt.start_time
+        weekly = frame.groupby("week_start", as_index=False).agg(
+            google_trends_index=("google_trends_index", "mean")
+        )
+        return weekly
 
     def _approximate_historical_weekly(self, monthly_history: pd.DataFrame) -> list[int]:
         return (monthly_history["visits"] / 4.345).round().astype(int).tolist()
