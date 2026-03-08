@@ -7,7 +7,14 @@ from collections.abc import Sequence
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
-from app.models import CrowdCalendar, Park, ParkAlert, ParkVisitationForecast, ParkVisitationHistory
+from app.models import (
+    CrowdCalendar,
+    Park,
+    ParkAlert,
+    ParkVisitationForecast,
+    ParkVisitationHistory,
+    ParkWeatherHistory,
+)
 from app.services.recommendations import get_best_weeks as rank_best_weeks
 from app.services.scoring import is_hidden_gem_week
 
@@ -100,3 +107,27 @@ def get_alerts(session: Session, park_id: int) -> Sequence[ParkAlert]:
 
     query = select(ParkAlert).where(ParkAlert.park_id == park_id).order_by(ParkAlert.starts_on)
     return session.scalars(query).all()
+
+
+def get_all_visitation_history(session: Session) -> Sequence[ParkVisitationHistory]:
+    """Return all visitation history rows ordered for export validation."""
+
+    return session.scalars(
+        select(ParkVisitationHistory).order_by(ParkVisitationHistory.park_id, ParkVisitationHistory.observation_month)
+    ).all()
+
+
+def get_all_weather_history(session: Session) -> Sequence[ParkWeatherHistory]:
+    """Return all weather history rows ordered for export validation."""
+
+    return session.scalars(
+        select(ParkWeatherHistory).order_by(ParkWeatherHistory.park_id, ParkWeatherHistory.observation_date)
+    ).all()
+
+
+def get_all_forecasts(session: Session) -> Sequence[ParkVisitationForecast]:
+    """Return all forecast rows ordered for export validation."""
+
+    return session.scalars(
+        select(ParkVisitationForecast).order_by(ParkVisitationForecast.park_id, ParkVisitationForecast.week_start)
+    ).all()

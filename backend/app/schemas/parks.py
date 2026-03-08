@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -99,3 +100,22 @@ class AlertResponse(BaseModel):
     is_active: bool
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ValidationExportMetadata(BaseModel):
+    exported_at: datetime
+    parks_included: int
+    visitation_history_records: int
+    weather_history_records: int
+    forecast_records: int
+    trend_signals_present: bool
+    social_sme_present: bool
+
+
+class ValidationExportBundle(BaseModel):
+    metadata: ValidationExportMetadata
+    visitation_history: list[dict[str, Any]]
+    weather_history: list[dict[str, Any]]
+    forecast: list[dict[str, Any]]
+    trend_signals: list[dict[str, Any]]
+    social_sme_signals: list[dict[str, Any]]

@@ -4,6 +4,7 @@ interface FeaturedInsightCardProps {
   metricLabel: string;
   metricValue: string;
   subtext: string;
+  explanation: string;
   onSelectPark: () => void;
 }
 
@@ -13,6 +14,7 @@ export function FeaturedInsightCard({
   metricLabel,
   metricValue,
   subtext,
+  explanation,
   onSelectPark,
 }: FeaturedInsightCardProps) {
   return (
@@ -25,6 +27,7 @@ export function FeaturedInsightCard({
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</p>
       <h3 className="mt-2 text-lg font-semibold text-slate-900">{parkName}</h3>
       <p className="mt-3 text-sm text-slate-600">{subtext}</p>
+      <p className="mt-2 text-xs text-slate-500">{explanation}</p>
       <div className="mt-4 flex items-end justify-between">
         <div>
           <p className="text-xs text-slate-500">{metricLabel}</p>

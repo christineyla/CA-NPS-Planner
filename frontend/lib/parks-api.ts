@@ -62,3 +62,8 @@ export async function getParkDashboardData(parkId: number): Promise<ParkDashboar
     accessibility,
   };
 }
+
+
+export function getValidationExportUrl(): string {
+  return `${API_BASE_URL}/parks/validation/export`;
+}
