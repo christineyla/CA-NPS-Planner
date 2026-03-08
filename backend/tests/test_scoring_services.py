@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timezone, timedelta
 
 from app.models import ParkAlert, ParkVisitationForecast
 from app.services.recommendations import (
@@ -29,6 +29,10 @@ def _forecast(
         weather_score=weather_score,
         accessibility_score=80,
         trip_score=trip_score,
+        forecast_generated_at=datetime.now(timezone.utc),
+        model_trained_at=datetime.now(timezone.utc),
+        data_cutoff_date=week_start,
+        model_version="test-model-v1",
     )
 
 

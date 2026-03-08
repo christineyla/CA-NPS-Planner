@@ -417,6 +417,10 @@ def seed_database(session: Session, start_date: date | None = None) -> None:
                 weather_score=weather_score,
                 accessibility_score=accessibility_score,
                 trip_score=trip_score,
+                forecast_generated_at=datetime.now(timezone.utc),
+                model_trained_at=datetime.now(timezone.utc),
+                data_cutoff_date=week_start,
+                model_version="seed-v1",
             )
             session.add(forecast)
             session.flush()

@@ -1,6 +1,5 @@
-from datetime import date
-
 from collections.abc import Generator
+from datetime import date
 
 import pandas as pd
 import pytest
@@ -77,6 +76,7 @@ def test_forecast_runner_outputs_park_specific_26_week_forecast() -> None:
 
 def test_forecast_generation_job_writes_26_weeks_for_each_park(seeded_session: Session) -> None:
     seeded_session.query(models.ParkVisitationForecast).delete()
+    seeded_session.query(models.CrowdCalendar).delete()
     seeded_session.commit()
 
     rows_written = ForecastGenerationJob().run(seeded_session)
@@ -86,6 +86,29 @@ def test_forecast_generation_job_writes_26_weeks_for_each_park(seeded_session: S
 
     rows_in_db = seeded_session.query(models.ParkVisitationForecast).count()
     assert rows_in_db == expected
+
+
+def test_forecast_generation_updates_metadata_fields(seeded_session: Session) -> None:
+    seeded_session.query(models.ParkVisitationForecast).delete()
+    seeded_session.query(models.CrowdCalendar).delete()
+    seeded_session.commit()
+
+    rows_written = ForecastGenerationJob().run(seeded_session)
+    assert rows_written == len(PARK_CONFIGS) * FORECAST_WEEKS
+
+    first = (
+        seeded_session.query(models.ParkVisitationForecast)
+        .order_by(
+            models.ParkVisitationForecast.park_id.asc(),
+            models.ParkVisitationForecast.week_start.asc(),
+        )
+        .first()
+    )
+    assert first is not None
+    assert first.forecast_generated_at is not None
+    assert first.model_trained_at is not None
+    assert first.data_cutoff_date is not None
+    assert first.model_version == "forecast-pipeline-v1"
 
 
 def test_forecast_generation_uses_trend_history_when_available(seeded_session: Session) -> None:
@@ -118,10 +141,23 @@ def test_forecast_generation_uses_trend_history_when_available(seeded_session: S
     assert rows_written == len(PARK_CONFIGS) * FORECAST_WEEKS
 
 
-def test_forecast_generation_fallbacks_when_trends_absent(seeded_session: Session) -> None:
+def test_forecast_generation_uses_weather_history_when_available(seeded_session: Session) -> None:
+    rows_written = ForecastGenerationJob().run(seeded_session)
+    assert rows_written == len(PARK_CONFIGS) * FORECAST_WEEKS
+
+    scores = seeded_session.query(models.ParkVisitationForecast.weather_score).all()
+    assert len(scores) == len(PARK_CONFIGS) * FORECAST_WEEKS
+
+
+def test_forecast_generation_fallbacks_when_optional_inputs_absent(seeded_session: Session) -> None:
     seeded_session.query(models.ParkTrendHistory).delete()
+    seeded_session.query(models.ParkWeatherHistory).delete()
     seeded_session.query(models.ParkVisitationForecast).delete()
+    seeded_session.query(models.CrowdCalendar).delete()
     seeded_session.commit()
 
     rows_written = ForecastGenerationJob().run(seeded_session)
     assert rows_written == len(PARK_CONFIGS) * FORECAST_WEEKS
+
+    calendar_count = seeded_session.query(models.CrowdCalendar).count()
+    assert calendar_count == len(PARK_CONFIGS) * FORECAST_WEEKS
