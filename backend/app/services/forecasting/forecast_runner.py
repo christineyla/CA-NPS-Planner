@@ -16,7 +16,9 @@ from app.services.forecasting.xgboost_adjustment import XGBoostAdjustmentLayer
 class ForecastRunner:
     """Run baseline, disaggregation, and adjustment stages for a park."""
 
-    baseline_forecaster: BaselineProphetForecaster = field(default_factory=BaselineProphetForecaster)
+    baseline_forecaster: BaselineProphetForecaster = field(
+        default_factory=BaselineProphetForecaster
+    )
     disaggregator: WeeklyDisaggregator = field(default_factory=WeeklyDisaggregator)
     feature_engineer: FeatureEngineer = field(default_factory=FeatureEngineer)
     adjustment_layer: XGBoostAdjustmentLayer = field(default_factory=XGBoostAdjustmentLayer)
@@ -29,6 +31,7 @@ class ForecastRunner:
         holiday_weeks: set[pd.Timestamp] | None = None,
         horizon_weeks: int = 26,
         seed: int = 42,
+        weekly_trend_history: pd.DataFrame | None = None,
     ) -> pd.DataFrame:
         """Generate a full 26-week forecast for a specific park."""
 
@@ -44,12 +47,19 @@ class ForecastRunner:
             holiday_weeks=holiday_weeks,
             seed=seed,
         )
+        if weekly_trend_history is not None and not weekly_trend_history.empty:
+            weekly_forecast = weekly_forecast.merge(
+                weekly_trend_history[["week_start", "google_trends_index"]],
+                on="week_start",
+                how="left",
+            )
+
         feature_frame = self.feature_engineer.build_weekly_features(
             weekly_frame=weekly_forecast,
             holiday_weeks=holiday_weeks,
         )
         adjusted = self.adjustment_layer.adjust(
-            weekly_forecast=weekly_forecast,
+            weekly_forecast=weekly_forecast.drop(columns=["google_trends_index"], errors="ignore"),
             feature_frame=feature_frame,
         )
         adjusted["park_id"] = park_id

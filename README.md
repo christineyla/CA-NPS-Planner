@@ -95,7 +95,7 @@ The ETL preserves an official-source strategy and downloads monthly recreation v
 - safely reruns by replacing the same park/month window to prevent duplicates
 - raises a clear error if both official IRMA and Data.gov sources fail
 
-Seeded mock data remains in place for other domains (weather/trends/alerts) that are not yet sourced by live ETL.
+Seeded mock data remains in place for domains (alerts and other optional external signals) that are not yet sourced by live ETL.
 
 
 ## 4b) Load Real Meteostat Weather History (Point Daily ETL)
@@ -129,6 +129,49 @@ Meteostat Point Daily does not provide a clear dataset-level `source_updated_at`
 ### Fallback behavior
 
 Seeded/mock weather behavior remains available wherever real weather rows are not yet present (for example, weather scoring falls back to the existing default assumptions when a forecast month has no weather history).
+
+## 4c) Load Google Trends History (3-year Weekly ETL)
+
+After seeding, load Google Trends search-interest history for the same five in-scope parks:
+
+```bash
+./scripts/load-trends-etl.sh
+```
+
+Trend query mapping is centrally configured in `IN_SCOPE_PARK_TREND_QUERIES` and currently uses one query per park:
+
+- `Yosemite National Park`
+- `Joshua Tree National Park`
+- `Death Valley National Park`
+- `Sequoia National Park`
+- `Kings Canyon National Park`
+
+Provider strategy is pluggable:
+
+- **Official provider path**: used when `GOOGLE_TRENDS_API_URL` and `GOOGLE_TRENDS_API_TOKEN` are configured.
+- **Fallback provider path (local/dev)**: uses `pytrends` (unofficial Google Trends client).
+
+The ETL ingests a rolling 3-year window and prefers weekly points. It then stores rows in `park_trend_history` with:
+
+- `park_id`
+- `observation_date`
+- `google_trends_index`
+- `data_source`
+- `source_updated_at`
+- `ingested_at`
+
+### Important normalization note
+
+Google Trends values are **normalized relative trend scores** (typically on a 0-100 index within the selected query/timeframe), not absolute search counts.
+
+### Timestamp assumptions
+
+- `source_updated_at` is stored if the selected provider exposes a source-level update timestamp.
+- If unavailable (common for the fallback pytrends path), `source_updated_at` is `NULL` and `ingested_at` is used as the local ETL timestamp.
+
+### Forecast integration behavior
+
+Forecast generation consumes trend history when present and continues to use existing fallback behavior when trend rows are unavailable for a park/week.
 
 ## 5) Run the App End-to-End
 

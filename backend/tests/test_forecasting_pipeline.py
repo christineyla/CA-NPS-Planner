@@ -1,3 +1,5 @@
+from datetime import date
+
 from collections.abc import Generator
 
 import pandas as pd
@@ -63,7 +65,9 @@ def test_forecast_runner_outputs_park_specific_26_week_forecast() -> None:
         }
     )
 
-    output = ForecastRunner().run_for_park(park_id=99, monthly_history=history, horizon_weeks=26, seed=7)
+    output = ForecastRunner().run_for_park(
+        park_id=99, monthly_history=history, horizon_weeks=26, seed=7
+    )
 
     assert len(output) == 26
     assert output["park_id"].nunique() == 1
@@ -82,3 +86,42 @@ def test_forecast_generation_job_writes_26_weeks_for_each_park(seeded_session: S
 
     rows_in_db = seeded_session.query(models.ParkVisitationForecast).count()
     assert rows_in_db == expected
+
+
+def test_forecast_generation_uses_trend_history_when_available(seeded_session: Session) -> None:
+    park = seeded_session.query(models.Park).order_by(models.Park.id.asc()).first()
+    assert park is not None
+
+    seeded_session.add_all(
+        [
+            models.ParkTrendHistory(
+                park_id=park.id,
+                observation_date=date(2025, 1, 6),
+                google_trends_index=95.0,
+                data_source="test-trends",
+                source_updated_at=None,
+                ingested_at=pd.Timestamp("2025-02-01").to_pydatetime(),
+            ),
+            models.ParkTrendHistory(
+                park_id=park.id,
+                observation_date=date(2025, 1, 13),
+                google_trends_index=90.0,
+                data_source="test-trends",
+                source_updated_at=None,
+                ingested_at=pd.Timestamp("2025-02-01").to_pydatetime(),
+            ),
+        ]
+    )
+    seeded_session.commit()
+
+    rows_written = ForecastGenerationJob().run(seeded_session)
+    assert rows_written == len(PARK_CONFIGS) * FORECAST_WEEKS
+
+
+def test_forecast_generation_fallbacks_when_trends_absent(seeded_session: Session) -> None:
+    seeded_session.query(models.ParkTrendHistory).delete()
+    seeded_session.query(models.ParkVisitationForecast).delete()
+    seeded_session.commit()
+
+    rows_written = ForecastGenerationJob().run(seeded_session)
+    assert rows_written == len(PARK_CONFIGS) * FORECAST_WEEKS

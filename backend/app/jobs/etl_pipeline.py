@@ -5,17 +5,18 @@ from __future__ import annotations
 import json
 import logging
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from os import getenv
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
 import pandas as pd
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.models import Park, ParkVisitationHistory, ParkWeatherHistory
+from app.models import Park, ParkTrendHistory, ParkVisitationHistory, ParkWeatherHistory
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,18 @@ IN_SCOPE_PARK_WEATHER_POINTS = {
     "death-valley": {"latitude": 36.5054, "longitude": -117.0794, "altitude": -58},
     "sequoia": {"latitude": 36.4864, "longitude": -118.5658, "altitude": 2200},
     "kings-canyon": {"latitude": 36.7960, "longitude": -118.6749, "altitude": 1980},
+}
+
+
+GOOGLE_TRENDS_OFFICIAL_SOURCE = "Google Trends API (official provider)"
+GOOGLE_TRENDS_PYTRENDS_SOURCE = "Google Trends via pytrends (unofficial fallback)"
+
+IN_SCOPE_PARK_TREND_QUERIES = {
+    "yosemite": "Yosemite National Park",
+    "joshua-tree": "Joshua Tree National Park",
+    "death-valley": "Death Valley National Park",
+    "sequoia": "Sequoia National Park",
+    "kings-canyon": "Kings Canyon National Park",
 }
 
 
@@ -859,7 +872,9 @@ class MeteostatWeatherETL:
                     {
                         "id": str(station_id),
                         "coverage_days": coverage_days,
-                        "distance_m": float(distance_m) if not pd.isna(distance_m) else float("inf"),
+                        "distance_m": (
+                            float(distance_m) if not pd.isna(distance_m) else float("inf")
+                        ),
                     }
                 )
 
@@ -990,6 +1005,251 @@ class MeteostatWeatherETL:
                     min_temp_f=None if pd.isna(row.min_temp_f) else float(row.min_temp_f),
                     max_temp_f=None if pd.isna(row.max_temp_f) else float(row.max_temp_f),
                     precipitation_mm=float(row.precipitation_mm),
+                    data_source=str(row.data_source),
+                    source_updated_at=row.source_updated_at,
+                    ingested_at=row.ingested_at,
+                )
+                for row in transformed.itertuples(index=False)
+            ]
+        )
+        session.commit()
+
+
+class GoogleTrendsProvider(Protocol):
+    """Provider interface for pluggable Google Trends ingestion."""
+
+    source_label: str
+
+    def fetch_weekly_interest(
+        self,
+        query_by_slug: dict[str, str],
+        start_date: date,
+        end_date: date,
+    ) -> tuple[pd.DataFrame, datetime | None]:
+        """Return a frame with columns: park_slug, observation_date, google_trends_index."""
+
+
+@dataclass
+class OfficialGoogleTrendsAPIProvider:
+    """Official provider path (used when explicit API access is configured)."""
+
+    source_label: str = GOOGLE_TRENDS_OFFICIAL_SOURCE
+    api_url: str | None = None
+    api_token: str | None = None
+
+    def fetch_weekly_interest(
+        self,
+        query_by_slug: dict[str, str],
+        start_date: date,
+        end_date: date,
+    ) -> tuple[pd.DataFrame, datetime | None]:
+        try:
+            import requests
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError("Official Google Trends provider requires requests.") from exc
+
+        url = self.api_url or getenv("GOOGLE_TRENDS_API_URL")
+        token = self.api_token or getenv("GOOGLE_TRENDS_API_TOKEN")
+        if not url or not token:
+            raise RuntimeError("Official Google Trends provider is not configured.")
+
+        rows: list[dict[str, Any]] = []
+        latest_source_update: datetime | None = None
+        headers = {"Authorization": f"Bearer {token}"}
+
+        for slug, query in query_by_slug.items():
+            response = requests.get(
+                url,
+                params={
+                    "query": query,
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                    "granularity": "weekly",
+                },
+                headers=headers,
+                timeout=60,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            source_updated_raw = payload.get("source_updated_at")
+            if source_updated_raw:
+                parsed = pd.Timestamp(source_updated_raw).to_pydatetime()
+                latest_source_update = (
+                    max(latest_source_update, parsed) if latest_source_update else parsed
+                )
+
+            for point in payload.get("data", []):
+                rows.append(
+                    {
+                        "park_slug": slug,
+                        "observation_date": pd.Timestamp(point["date"]).date(),
+                        "google_trends_index": float(point["value"]),
+                    }
+                )
+
+        return pd.DataFrame(rows), latest_source_update
+
+
+@dataclass
+class PytrendsGoogleTrendsProvider:
+    """Fallback provider for local/dev use via the unofficial pytrends package."""
+
+    source_label: str = GOOGLE_TRENDS_PYTRENDS_SOURCE
+
+    def fetch_weekly_interest(
+        self,
+        query_by_slug: dict[str, str],
+        start_date: date,
+        end_date: date,
+    ) -> tuple[pd.DataFrame, datetime | None]:
+        try:
+            from pytrends.request import TrendReq
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError(
+                "Fallback Google Trends provider requires pytrends. Install backend dependencies."
+            ) from exc
+
+        rows: list[dict[str, Any]] = []
+        trend_client = TrendReq(hl="en-US", tz=0)
+
+        for slug, query in query_by_slug.items():
+            timeframe = f"{start_date.isoformat()} {end_date.isoformat()}"
+            trend_client.build_payload([query], timeframe=timeframe, geo="US-CA")
+            frame = trend_client.interest_over_time()
+            if frame.empty or query not in frame.columns:
+                continue
+
+            values = (
+                frame[[query]]
+                .reset_index()
+                .rename(columns={"date": "observation_date", query: "google_trends_index"})
+            )
+            values["park_slug"] = slug
+            values["observation_date"] = pd.to_datetime(values["observation_date"]).dt.date
+            values["google_trends_index"] = pd.to_numeric(
+                values["google_trends_index"], errors="coerce"
+            )
+            values = values.dropna(subset=["google_trends_index"])
+            rows.extend(
+                values[["park_slug", "observation_date", "google_trends_index"]].to_dict("records")
+            )
+
+        return pd.DataFrame(rows), None
+
+
+@dataclass
+class GoogleTrendsHistoryETL:
+    """Extract and load Google Trends weekly index history for in-scope parks."""
+
+    lookback_years: int = 3
+    query_by_slug: dict[str, str] = field(default_factory=lambda: dict(IN_SCOPE_PARK_TREND_QUERIES))
+    provider: GoogleTrendsProvider | None = None
+
+    def __post_init__(self) -> None:
+        if self.provider is None:
+            self.provider = self._default_provider()
+
+    def _default_provider(self) -> GoogleTrendsProvider:
+        if getenv("GOOGLE_TRENDS_API_URL") and getenv("GOOGLE_TRENDS_API_TOKEN"):
+            return OfficialGoogleTrendsAPIProvider()
+        return PytrendsGoogleTrendsProvider()
+
+    def run(
+        self,
+        session: Session,
+        trend_data: pd.DataFrame | None = None,
+        source_updated_at: datetime | None = None,
+    ) -> int:
+        parks_by_slug = self._fetch_in_scope_parks(session)
+        if len(parks_by_slug) != len(IN_SCOPE_PARK_TREND_QUERIES):
+            raise ValueError("Expected all in-scope parks before running trends ETL")
+
+        start_date, end_date = self._window_dates(reference_date=date.today())
+        source_label = self.provider.source_label
+
+        transformed = trend_data
+        if transformed is None:
+            transformed, provider_updated_at = self.provider.fetch_weekly_interest(
+                query_by_slug=self.query_by_slug,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            source_updated_at = source_updated_at or provider_updated_at
+
+        if transformed.empty:
+            return 0
+
+        transformed = self._normalize(
+            transformed=transformed,
+            parks_by_slug=parks_by_slug,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        if transformed.empty:
+            return 0
+
+        transformed["data_source"] = source_label
+        transformed["source_updated_at"] = source_updated_at
+        transformed["ingested_at"] = datetime.now(timezone.utc)
+
+        self._replace_window(session=session, transformed=transformed)
+        return int(len(transformed))
+
+    def _normalize(
+        self,
+        transformed: pd.DataFrame,
+        parks_by_slug: dict[str, Park],
+        start_date: date,
+        end_date: date,
+    ) -> pd.DataFrame:
+        frame = transformed.copy()
+        expected = {"park_slug", "observation_date", "google_trends_index"}
+        if not expected.issubset(frame.columns):
+            raise ValueError(
+                "Trend data must include park_slug, observation_date, google_trends_index"
+            )
+
+        frame = frame[frame["park_slug"].isin(self.query_by_slug.keys())].copy()
+        frame["observation_date"] = pd.to_datetime(
+            frame["observation_date"], errors="coerce"
+        ).dt.date
+        frame["google_trends_index"] = pd.to_numeric(frame["google_trends_index"], errors="coerce")
+        frame = frame.dropna(subset=["observation_date", "google_trends_index"])
+        frame = frame[
+            (frame["observation_date"] >= start_date) & (frame["observation_date"] <= end_date)
+        ]
+        frame["park_id"] = frame["park_slug"].map(lambda slug: parks_by_slug[slug].id)
+        frame = frame.sort_values(["park_id", "observation_date"]).drop_duplicates(
+            ["park_id", "observation_date"], keep="last"
+        )
+        return frame[["park_id", "observation_date", "google_trends_index"]]
+
+    def _window_dates(self, reference_date: date) -> tuple[date, date]:
+        end_date = reference_date - timedelta(days=1)
+        start_date = date(end_date.year - self.lookback_years + 1, 1, 1)
+        return start_date, end_date
+
+    def _fetch_in_scope_parks(self, session: Session) -> dict[str, Park]:
+        parks = session.scalars(select(Park).where(Park.slug.in_(self.query_by_slug.keys()))).all()
+        return {park.slug: park for park in parks}
+
+    def _replace_window(self, session: Session, transformed: pd.DataFrame) -> None:
+        min_observation_date = transformed["observation_date"].min()
+        park_ids = transformed["park_id"].drop_duplicates().tolist()
+
+        session.execute(
+            delete(ParkTrendHistory).where(
+                ParkTrendHistory.park_id.in_(park_ids),
+                ParkTrendHistory.observation_date >= min_observation_date,
+            )
+        )
+
+        session.add_all(
+            [
+                ParkTrendHistory(
+                    park_id=int(row.park_id),
+                    observation_date=row.observation_date,
+                    google_trends_index=float(row.google_trends_index),
                     data_source=str(row.data_source),
                     source_updated_at=row.source_updated_at,
                     ingested_at=row.ingested_at,
