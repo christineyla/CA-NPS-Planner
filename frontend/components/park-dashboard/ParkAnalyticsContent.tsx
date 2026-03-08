@@ -1,4 +1,5 @@
 import { formatScore } from "@/lib/formatters";
+import { getScoreCardLabels } from "@/lib/scoreLabels";
 import { ParkDashboardData } from "@/types/park-dashboard";
 
 import { AccessibilityDetailsModal } from "./AccessibilityDetailsModal";
@@ -16,6 +17,7 @@ interface ParkAnalyticsContentProps {
 
 export function ParkAnalyticsContent({ data }: ParkAnalyticsContentProps) {
   const currentWeek = data.forecast[0];
+  const scoreLabels = currentWeek ? getScoreCardLabels(currentWeek) : null;
 
   return (
     <div className="space-y-4">
@@ -36,9 +38,24 @@ export function ParkAnalyticsContent({ data }: ParkAnalyticsContentProps) {
 
       {currentWeek ? (
         <section className="grid gap-4 sm:grid-cols-3">
-          <ScoreCard label="Crowd Score" score={currentWeek.crowd_score} accentClass="text-rose-700" />
-          <ScoreCard label="Weather Score" score={currentWeek.weather_score} accentClass="text-sky-700" />
-          <ScoreCard label="Trip Score" score={currentWeek.trip_score} accentClass="text-emerald-700" />
+          <ScoreCard
+            label="Crowd Score"
+            score={currentWeek.crowd_score}
+            accentClass="text-rose-700"
+            subtitle={scoreLabels?.crowd}
+          />
+          <ScoreCard
+            label="Weather Score"
+            score={currentWeek.weather_score}
+            accentClass="text-sky-700"
+            subtitle={scoreLabels?.weather}
+          />
+          <ScoreCard
+            label="Trip Score"
+            score={currentWeek.trip_score}
+            accentClass="text-emerald-700"
+            subtitle={scoreLabels?.trip}
+          />
         </section>
       ) : null}
 
