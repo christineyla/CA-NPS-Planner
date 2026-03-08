@@ -22,7 +22,7 @@ interface ChartPoint {
   upper: number | null;
 }
 
-const CHART_WIDTH = 820;
+const CHART_WIDTH = 900;
 const CHART_HEIGHT = 260;
 const LEFT_PADDING = 62;
 const RIGHT_PADDING = 52;
