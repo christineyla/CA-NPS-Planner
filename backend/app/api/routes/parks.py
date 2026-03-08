@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,10 +20,15 @@ from app.schemas.parks import (
     VisitationHistoryPoint,
     ParkListItem,
     ParksMapDataItem,
+    ValidationExportBundle,
+    ValidationExportMetadata,
 )
 from app.services.cache import get_cached_value, set_cached_value
 from app.services.park_queries import (
     get_alerts,
+    get_all_forecasts,
+    get_all_visitation_history,
+    get_all_weather_history,
     get_best_weeks,
     get_crowd_calendar,
     get_hidden_gem_weeks,
@@ -140,6 +146,87 @@ def park_forecast(park_id: int, session: Session = Depends(get_session)) -> list
     return response
 
 
+
+
+
+@router.get("/validation/export", response_model=ValidationExportBundle)
+def validation_export_bundle(session: Session = Depends(get_session)) -> ValidationExportBundle:
+    """Temporary validation export for cross-team QA and data provenance checks."""
+
+    cache_key = "parks:validation:export"
+    if cached := _from_cache(cache_key):
+        return cached
+
+    visitation_rows = get_all_visitation_history(session)
+    weather_rows = get_all_weather_history(session)
+    forecast_rows = get_all_forecasts(session)
+
+    visitation_payload = [
+        {
+            "park_id": row.park_id,
+            "park_slug": row.park.slug,
+            "observation_month": row.observation_month,
+            "visits": row.visits,
+            "data_source": row.data_source,
+            "source_updated_at": row.source_updated_at,
+            "ingested_at": row.ingested_at,
+        }
+        for row in visitation_rows
+    ]
+
+    weather_payload = [
+        {
+            "park_id": row.park_id,
+            "park_slug": row.park.slug,
+            "observation_date": row.observation_date,
+            "avg_temp_f": row.avg_temp_f,
+            "min_temp_f": row.min_temp_f,
+            "max_temp_f": row.max_temp_f,
+            "precipitation_mm": row.precipitation_mm,
+            "data_source": row.data_source,
+            "source_updated_at": row.source_updated_at,
+            "ingested_at": row.ingested_at,
+        }
+        for row in weather_rows
+    ]
+
+    forecast_payload = [
+        {
+            "park_id": row.park_id,
+            "park_slug": row.park.slug,
+            "week_start": row.week_start,
+            "week_end": row.week_end,
+            "predicted_visits": row.predicted_visits,
+            "crowd_score": row.crowd_score,
+            "weather_score": row.weather_score,
+            "accessibility_score": row.accessibility_score,
+            "trip_score": row.trip_score,
+            "forecast_generated_at": None,
+            "data_source": "model_pipeline_seeded",
+        }
+        for row in forecast_rows
+    ]
+
+    metadata = ValidationExportMetadata(
+        exported_at=datetime.now(tz=timezone.utc),
+        parks_included=len(get_parks(session)),
+        visitation_history_records=len(visitation_payload),
+        weather_history_records=len(weather_payload),
+        forecast_records=len(forecast_payload),
+        trend_signals_present=False,
+        social_sme_present=False,
+    )
+
+    response = ValidationExportBundle(
+        metadata=metadata,
+        visitation_history=visitation_payload,
+        weather_history=weather_payload,
+        forecast=forecast_payload,
+        trend_signals=[],
+        social_sme_signals=[],
+    )
+    _set_cache(cache_key, response)
+    return response
 
 
 @router.get("/{park_id}/visitation-history", response_model=list[VisitationHistoryPoint])

@@ -1,12 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 
 import { CaliforniaParkMap } from "@/components/home/CaliforniaParkMap";
 import { FeaturedInsightCard } from "@/components/home/FeaturedInsightCard";
 import { ParkAnalyticsContent } from "@/components/park-dashboard/ParkAnalyticsContent";
 import { formatDateRange, formatScore } from "@/lib/formatters";
+import { getValidationExportUrl } from "@/lib/parks-api";
 import { ForecastWeek, ParkDashboardData, ParkListItem, ParksMapDataItem } from "@/types/park-dashboard";
 
 interface WeeklyInsight {
@@ -62,6 +62,43 @@ function selectBestWeatherInThirtyDays(parks: ParkListItem[], forecasts: Forecas
   });
 
   return winner;
+}
+
+
+function buildTripScoreExplanation(tripScore: number | null): string {
+  if (tripScore === null) {
+    return "Balanced crowd, weather, and access signals support this recommendation.";
+  }
+
+  if (tripScore >= 75) {
+    return "Low crowds and comfortable weather make this a strong week to visit.";
+  }
+
+  if (tripScore >= 60) {
+    return "This park combines manageable visitation with favorable near-term conditions.";
+  }
+
+  return "A steadier mix of access, weather, and crowds makes this park a practical pick.";
+}
+
+function buildCrowdInsightExplanation(crowdScore: number): string {
+  if (crowdScore <= 30) {
+    return "Lower crowd pressure than other parks over the next 30 days.";
+  }
+
+  return "This park still trends less crowded than nearby alternatives this month.";
+}
+
+function buildWeatherInsightExplanation(weatherScore: number, crowdScore: number): string {
+  if (weatherScore >= 75 && crowdScore <= 45) {
+    return "This park combines relatively low visitation with improving seasonal conditions.";
+  }
+
+  if (weatherScore >= 75) {
+    return "Comfort-focused weather conditions lift this week above other near-term options.";
+  }
+
+  return "Weather trends remain comparatively favorable for planning in the coming weeks.";
 }
 
 export function HomeDashboard({ parks, mapData, dashboardData }: HomeDashboardProps) {
@@ -124,6 +161,7 @@ export function HomeDashboard({ parks, mapData, dashboardData }: HomeDashboardPr
                   metricLabel="Trip score"
                   metricValue={formatScore(bestParkThisWeek.trip_score ?? 0)}
                   subtext="Top overall balance of lower crowds, favorable weather, and access this week."
+                  explanation={buildTripScoreExplanation(bestParkThisWeek.trip_score)}
                   onSelectPark={() => selectParkAndScroll(bestParkThisWeek.id)}
                 />
               ) : null}
@@ -135,6 +173,7 @@ export function HomeDashboard({ parks, mapData, dashboardData }: HomeDashboardPr
                   metricLabel="Crowd score"
                   metricValue={formatScore(lowestCrowdThirtyDays.week.crowd_score)}
                   subtext={`Week of ${formatDateRange(lowestCrowdThirtyDays.week.week_start, lowestCrowdThirtyDays.week.week_end)} has the lightest projected crowds.`}
+                  explanation={buildCrowdInsightExplanation(lowestCrowdThirtyDays.week.crowd_score)}
                   onSelectPark={() => selectParkAndScroll(lowestCrowdThirtyDays.park.id)}
                 />
               ) : null}
@@ -146,6 +185,7 @@ export function HomeDashboard({ parks, mapData, dashboardData }: HomeDashboardPr
                   metricLabel="Weather score"
                   metricValue={formatScore(bestWeatherThirtyDays.week.weather_score)}
                   subtext={`Week of ${formatDateRange(bestWeatherThirtyDays.week.week_start, bestWeatherThirtyDays.week.week_end)} has the strongest expected weather comfort.`}
+                  explanation={buildWeatherInsightExplanation(bestWeatherThirtyDays.week.weather_score, bestWeatherThirtyDays.week.crowd_score)}
                   onSelectPark={() => selectParkAndScroll(bestWeatherThirtyDays.park.id)}
                 />
               ) : null}
@@ -153,6 +193,20 @@ export function HomeDashboard({ parks, mapData, dashboardData }: HomeDashboardPr
           </div>
 
           <CaliforniaParkMap parks={mapData} selectedParkId={selectedParkId} onSelectPark={setSelectedParkId} />
+        </section>
+
+
+        <section className="rounded-xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-slate-900">Temporary validation export</h2>
+          <p className="mt-1 text-sm text-slate-700">
+            Temporary QA tool: download the currently loaded visitation, weather, and forecast datasets with available provenance fields.
+          </p>
+          <a
+            href={getValidationExportUrl()}
+            className="mt-4 inline-flex items-center rounded-md border border-amber-400 bg-white px-4 py-2 text-sm font-medium text-slate-800 transition hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+          >
+            Download validation bundle (JSON)
+          </a>
         </section>
 
         <section

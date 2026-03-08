@@ -118,3 +118,30 @@ def test_best_weeks_exclude_red_alert_windows(seeded_client: TestClient) -> None
             and week_end >= date.fromisoformat(alert["starts_on"])
             for alert in red_alerts
         )
+
+
+def test_validation_export_bundle_returns_data_and_metadata(seeded_client: TestClient) -> None:
+    response = seeded_client.get("/parks/validation/export")
+
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert "metadata" in payload
+    assert payload["metadata"]["parks_included"] == len(PARK_CONFIGS)
+    assert payload["metadata"]["visitation_history_records"] == len(payload["visitation_history"])
+    assert payload["metadata"]["weather_history_records"] == len(payload["weather_history"])
+    assert payload["metadata"]["forecast_records"] == len(payload["forecast"])
+
+    assert payload["trend_signals"] == []
+    assert payload["social_sme_signals"] == []
+
+    assert payload["visitation_history"]
+    assert "data_source" in payload["visitation_history"][0]
+    assert "ingested_at" in payload["visitation_history"][0]
+
+    if payload["weather_history"]:
+        assert "data_source" in payload["weather_history"][0]
+        assert "ingested_at" in payload["weather_history"][0]
+
+    assert payload["forecast"]
+    assert "data_source" in payload["forecast"][0]
