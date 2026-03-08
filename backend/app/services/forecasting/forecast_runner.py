@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 
 import pandas as pd
 
@@ -32,6 +33,7 @@ class ForecastRunner:
         horizon_weeks: int = 26,
         seed: int = 42,
         weekly_trend_history: pd.DataFrame | None = None,
+        forecast_start_date: date | pd.Timestamp | None = None,
     ) -> pd.DataFrame:
         """Generate a full 26-week forecast for a specific park."""
 
@@ -40,9 +42,13 @@ class ForecastRunner:
             monthly_history=monthly_history,
             periods=max(6, (horizon_weeks // 4) + 1),
         )
+        disaggregation_start = (
+            pd.Timestamp(forecast_start_date) if forecast_start_date is not None else None
+        )
         weekly_forecast = self.disaggregator.disaggregate(
             monthly_forecast=monthly_forecast,
             horizon_weeks=horizon_weeks,
+            start_date=disaggregation_start,
             seasonal_weights=seasonal_weights,
             holiday_weeks=holiday_weeks,
             seed=seed,

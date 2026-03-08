@@ -1,5 +1,5 @@
 from collections.abc import Generator
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pandas as pd
 import pytest
@@ -73,6 +73,45 @@ def test_forecast_runner_outputs_park_specific_26_week_forecast() -> None:
     assert output["park_id"].iloc[0] == 99
     assert (output["predicted_visits"] >= 0).all()
 
+
+
+
+def test_derive_forecast_start_date_uses_later_of_run_week_or_post_cutoff_week() -> None:
+    job = ForecastGenerationJob()
+
+    start_from_run_week = job._derive_forecast_start_date(
+        data_cutoff_date=date(2026, 1, 15),
+        run_context_date=date(2026, 2, 18),
+    )
+    assert start_from_run_week == date(2026, 2, 16)
+
+    start_from_cutoff = job._derive_forecast_start_date(
+        data_cutoff_date=date(2026, 3, 20),
+        run_context_date=date(2026, 2, 18),
+    )
+    assert start_from_cutoff == date(2026, 3, 23)
+
+
+def test_forecast_generation_starts_from_run_context_week(seeded_session: Session) -> None:
+    seeded_session.query(models.ParkVisitationForecast).delete()
+    seeded_session.query(models.CrowdCalendar).delete()
+    seeded_session.commit()
+
+    run_generated_at = datetime(2026, 4, 15, tzinfo=timezone.utc)
+    rows_written = ForecastGenerationJob().run(seeded_session, generated_at=run_generated_at)
+    assert rows_written == len(PARK_CONFIGS) * FORECAST_WEEKS
+
+    first = (
+        seeded_session.query(models.ParkVisitationForecast)
+        .order_by(
+            models.ParkVisitationForecast.park_id.asc(),
+            models.ParkVisitationForecast.week_start.asc(),
+        )
+        .first()
+    )
+    assert first is not None
+    assert first.week_start == date(2026, 4, 13)
+    assert first.forecast_generated_at.date() == run_generated_at.date()
 
 def test_forecast_generation_job_writes_26_weeks_for_each_park(seeded_session: Session) -> None:
     seeded_session.query(models.ParkVisitationForecast).delete()

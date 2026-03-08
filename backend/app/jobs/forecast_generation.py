@@ -44,6 +44,7 @@ class ForecastGenerationJob:
 
         run_generated_at = generated_at or datetime.now(timezone.utc)
         run_model_trained_at = model_trained_at or run_generated_at
+        run_context_date = run_generated_at.date()
 
         parks = session.query(Park).order_by(Park.id.asc()).all()
         written_rows = 0
@@ -54,31 +55,32 @@ class ForecastGenerationJob:
                 continue
 
             trend_history = self._load_weekly_trend_history(session=session, park_id=park.id)
+            weather_by_month = self._load_monthly_weather_by_month_start(
+                session=session,
+                park_id=park.id,
+            )
+            data_cutoff_date = self._derive_data_cutoff_date(
+                monthly_history=monthly_history,
+                weather_by_month=weather_by_month,
+                trend_history=trend_history,
+            )
+            forecast_start_date = self._derive_forecast_start_date(
+                data_cutoff_date=data_cutoff_date,
+                run_context_date=run_context_date,
+            )
             weekly_forecasts = self.forecast_runner.run_for_park(
                 park_id=park.id,
                 monthly_history=monthly_history,
                 horizon_weeks=horizon_weeks,
                 seed=seed,
                 weekly_trend_history=trend_history,
+                forecast_start_date=forecast_start_date,
             )
             historical_weekly = self._approximate_historical_weekly(monthly_history)
-            data_cutoff_date = self._derive_data_cutoff_date(
-                monthly_history=monthly_history,
-                weather_by_month=self._load_monthly_weather_by_month_start(
-                    session=session,
-                    park_id=park.id,
-                ),
-                trend_history=trend_history,
-            )
 
             session.execute(delete(CrowdCalendar).where(CrowdCalendar.park_id == park.id))
             session.execute(
                 delete(ParkVisitationForecast).where(ParkVisitationForecast.park_id == park.id)
-            )
-
-            weather_by_month = self._load_monthly_weather_by_month_start(
-                session=session,
-                park_id=park.id,
             )
 
             for _, row in weekly_forecasts.iterrows():
@@ -202,6 +204,19 @@ class ForecastGenerationJob:
             temperature_f=avg_temp_f,
             precipitation_probability=precipitation_probability,
         )
+
+
+    def _derive_forecast_start_date(
+        self,
+        data_cutoff_date: date,
+        run_context_date: date,
+    ) -> date:
+        cutoff_ts = pd.Timestamp(data_cutoff_date)
+        run_context_ts = pd.Timestamp(run_context_date)
+        current_week_start = run_context_ts - pd.Timedelta(days=run_context_ts.weekday())
+        next_week_after_cutoff = cutoff_ts + pd.offsets.Week(weekday=0)
+        forecast_start = max(current_week_start, next_week_after_cutoff)
+        return forecast_start.date()
 
     def _derive_data_cutoff_date(
         self,
