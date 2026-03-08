@@ -25,10 +25,10 @@ interface ChartPoint {
 const CHART_WIDTH = 900;
 const CHART_HEIGHT = 260;
 const LEFT_PADDING = 62;
-const RIGHT_PADDING = 52;
+const RIGHT_PADDING = 62;
 const TOP_PADDING = 20;
-const BOTTOM_PADDING = 34;
-const X_AXIS_LABEL_ROTATION_DEGREES = -18;
+const BOTTOM_PADDING = 38;
+const X_AXIS_LABEL_ROTATION_DEGREES = -24;
 
 function formatLabel(date: Date): string {
   return date.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
@@ -108,7 +108,21 @@ function shouldRenderXAxisLabel(points: ChartPoint[], pointIndex: number, foreca
     return true;
   }
 
-  return point.date.getMonth() !== previousForecastPoint.date.getMonth() || point.date.getFullYear() !== previousForecastPoint.date.getFullYear();
+  const isNewMonth =
+    point.date.getMonth() !== previousForecastPoint.date.getMonth() ||
+    point.date.getFullYear() !== previousForecastPoint.date.getFullYear();
+
+  if (!isNewMonth) {
+    return false;
+  }
+
+  const shouldThinFarRightLabels = pointIndex > points.length - 7;
+
+  if (shouldThinFarRightLabels) {
+    return point.date.getMonth() % 2 === 0;
+  }
+
+  return true;
 }
 
 function buildPath(points: ChartPoint[], maxValue: number, type: PointType): string {

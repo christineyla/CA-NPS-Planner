@@ -1,4 +1,5 @@
 import { formatDateRange, formatScore } from "@/lib/formatters";
+import { getCrowdScoreLabel, getWeatherScoreLabel } from "@/lib/scoreLabels";
 import { ForecastWeek } from "@/types/park-dashboard";
 
 interface BestWeeksListProps {
@@ -19,6 +20,9 @@ export function BestWeeksList({ weeks }: BestWeeksListProps) {
               {formatDateRange(week.week_start, week.week_end)}
             </p>
             <p className="text-xs text-slate-600">Trip score: {formatScore(week.trip_score)}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Crowd outlook: {getCrowdScoreLabel(week.crowd_score)} · Weather outlook: {getWeatherScoreLabel(week.weather_score)}
+            </p>
           </li>
         ))}
       </ol>
