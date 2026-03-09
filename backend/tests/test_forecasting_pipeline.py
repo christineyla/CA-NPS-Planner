@@ -200,3 +200,78 @@ def test_forecast_generation_fallbacks_when_optional_inputs_absent(seeded_sessio
 
     calendar_count = seeded_session.query(models.CrowdCalendar).count()
     assert calendar_count == len(PARK_CONFIGS) * FORECAST_WEEKS
+
+
+def test_forecast_values_not_constant_for_seasonal_park(seeded_session: Session) -> None:
+    seeded_session.query(models.ParkVisitationForecast).delete()
+    seeded_session.query(models.CrowdCalendar).delete()
+    seeded_session.commit()
+
+    ForecastGenerationJob().run(seeded_session)
+
+    yosemite = seeded_session.query(models.Park).filter_by(slug="yosemite").one()
+    yosemite_forecasts = (
+        seeded_session.query(models.ParkVisitationForecast)
+        .filter_by(park_id=yosemite.id)
+        .order_by(models.ParkVisitationForecast.week_start.asc())
+        .all()
+    )
+    predicted_values = [row.predicted_visits for row in yosemite_forecasts]
+
+    assert len(yosemite_forecasts) == FORECAST_WEEKS
+    assert len(set(predicted_values)) > 1
+
+
+def test_crowd_scores_vary_and_increase_into_summer_for_yosemite(seeded_session: Session) -> None:
+    seeded_session.query(models.ParkVisitationForecast).delete()
+    seeded_session.query(models.CrowdCalendar).delete()
+    seeded_session.commit()
+
+    ForecastGenerationJob().run(seeded_session)
+
+    yosemite = seeded_session.query(models.Park).filter_by(slug="yosemite").one()
+    yosemite_forecasts = (
+        seeded_session.query(models.ParkVisitationForecast)
+        .filter_by(park_id=yosemite.id)
+        .order_by(models.ParkVisitationForecast.week_start.asc())
+        .all()
+    )
+    crowd_scores = [row.crowd_score for row in yosemite_forecasts]
+
+    assert len(set(crowd_scores)) > 1
+    assert max(crowd_scores) > min(crowd_scores)
+
+    early_window_peak = max(crowd_scores[:8])
+    summer_window_peak = max(crowd_scores[12:20])
+    assert summer_window_peak > early_window_peak
+
+
+def test_crowd_calendar_rows_reflect_forecast_crowd_scores(seeded_session: Session) -> None:
+    seeded_session.query(models.ParkVisitationForecast).delete()
+    seeded_session.query(models.CrowdCalendar).delete()
+    seeded_session.commit()
+
+    ForecastGenerationJob().run(seeded_session)
+
+    yosemite = seeded_session.query(models.Park).filter_by(slug="yosemite").one()
+    forecasts = (
+        seeded_session.query(models.ParkVisitationForecast)
+        .filter_by(park_id=yosemite.id)
+        .order_by(models.ParkVisitationForecast.week_start.asc())
+        .all()
+    )
+    calendar_entries = (
+        seeded_session.query(models.CrowdCalendar)
+        .filter_by(park_id=yosemite.id)
+        .order_by(models.CrowdCalendar.forecast_id.asc())
+        .all()
+    )
+
+    assert len(forecasts) == FORECAST_WEEKS
+    assert len(calendar_entries) == FORECAST_WEEKS
+    assert len({entry.color_hex for entry in calendar_entries}) > 1
+
+    by_forecast_id = {entry.forecast_id: entry for entry in calendar_entries}
+    for forecast in forecasts:
+        entry = by_forecast_id[forecast.id]
+        assert entry.crowd_score == forecast.crowd_score
