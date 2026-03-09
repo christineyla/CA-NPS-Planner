@@ -17,6 +17,7 @@ interface ChartPoint {
   endDate: Date | null;
   label: string;
   visits: number;
+  displayLabel: string;
   type: PointType;
   lower: number | null;
   upper: number | null;
@@ -45,14 +46,24 @@ function formatWeekRange(startDate: Date, endDate: Date | null): string {
   })} - ${endDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
 }
 
+function getWeeksInMonth(date: Date): number {
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  return daysInMonth / 7;
+}
+
 function toChartPoints(history: VisitationHistoryPoint[], forecast: ForecastWeek[]): ChartPoint[] {
   const historyPoints = history.map((entry) => {
     const date = new Date(entry.observation_month);
+    const weeklyEquivalentVisits = entry.visits / getWeeksInMonth(date);
+
     return {
       date,
       endDate: null,
       label: formatLabel(date),
-      visits: entry.visits,
+      visits: weeklyEquivalentVisits,
+      displayLabel: "Historical (weekly-equivalent from monthly total)",
       type: "history" as const,
       lower: null,
       upper: null,
@@ -66,6 +77,7 @@ function toChartPoints(history: VisitationHistoryPoint[], forecast: ForecastWeek
       endDate: new Date(week.week_end),
       label: formatLabel(date),
       visits: week.predicted_visits,
+      displayLabel: "Forecast",
       type: "forecast" as const,
       lower: week.predicted_visits_lower ?? null,
       upper: week.predicted_visits_upper ?? null,
@@ -188,7 +200,7 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <h2 className="text-lg font-semibold text-slate-900">Historical + Forecast Visits</h2>
-      <p className="mt-1 text-xs text-slate-500">Historical monthly visitation and forecasted weekly trends for the selected park.</p>
+      <p className="mt-1 text-xs text-slate-500">Historical monthly visitation shown as weekly-equivalent values with forecasted weekly trends for the selected park.</p>
       <div className="mt-3 rounded-md border border-slate-100 p-2">
         <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} className="h-72 w-full" role="img" aria-label="Historical and forecast visits line chart">
           <line
@@ -200,6 +212,16 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
             strokeWidth="1"
           />
           <line x1={LEFT_PADDING} y1={TOP_PADDING} x2={LEFT_PADDING} y2={CHART_HEIGHT - BOTTOM_PADDING} className="stroke-slate-300" strokeWidth="1" />
+
+          {forecastStartX ? (
+            <rect
+              x={forecastStartX}
+              y={TOP_PADDING}
+              width={CHART_WIDTH - RIGHT_PADDING - forecastStartX}
+              height={CHART_HEIGHT - TOP_PADDING - BOTTOM_PADDING}
+              className="fill-emerald-500/5"
+            />
+          ) : null}
 
           <text
             x={14}
@@ -270,7 +292,7 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
               >
                 <div className="rounded-md border border-slate-200 bg-white/95 px-2 py-1 text-[11px] leading-4 text-slate-700 shadow-lg backdrop-blur-sm">
                   <p className="font-medium text-slate-900">{formatWeekRange(activePoint.point.date, activePoint.point.endDate)}</p>
-                  <p>{activePoint.point.type === "history" ? "Historical" : "Forecast"}</p>
+                  <p>{activePoint.point.displayLabel}</p>
                   <p>Visits: {formatVisits(activePoint.point.visits)}</p>
                   {activePoint.point.type === "forecast" && activePoint.point.lower !== null && activePoint.point.upper !== null ? (
                     <p>
@@ -285,7 +307,7 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-600">
         <span className="inline-flex items-center gap-1">
-          <span className="h-0.5 w-4 bg-slate-600" /> Historical (monthly)
+          <span className="h-0.5 w-4 bg-slate-600" /> Historical (weekly-equivalent)
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="h-0.5 w-4 border-t-2 border-dashed border-emerald-600" /> Forecast (weekly)
@@ -295,7 +317,7 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
             <span className="h-2 w-4 rounded-sm bg-emerald-500/20" /> Forecast confidence range
           </span>
         ) : null}
-        <span className="ml-auto text-slate-500">Peak weekly/monthly volume: {formatVisits(maxValue)}</span>
+        <span className="ml-auto text-slate-500">Peak displayed weekly volume: {formatVisits(maxValue)}</span>
       </div>
     </section>
   );
