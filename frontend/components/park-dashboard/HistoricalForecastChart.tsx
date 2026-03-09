@@ -24,13 +24,14 @@ interface ChartPoint {
 }
 
 const CHART_WIDTH = 900;
-const CHART_HEIGHT = 260;
+const CHART_HEIGHT = 410;
 const LEFT_PADDING = 72;
-const RIGHT_PADDING = 72;
-const TOP_PADDING = 20;
+const RIGHT_PADDING = 44;
+const TOP_PADDING = 24;
 const FORECAST_LABEL_OFFSET = 12;
-const BOTTOM_PADDING = 38;
+const BOTTOM_PADDING = 72;
 const X_AXIS_LABEL_ROTATION_DEGREES = -24;
+const MIN_X_LABEL_SPACING = 72;
 
 function formatLabel(date: Date): string {
   return date.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
@@ -88,35 +89,55 @@ function toChartPoints(history: VisitationHistoryPoint[], forecast: ForecastWeek
   return [...historyPoints, ...forecastPoints].sort((a, b) => a.date.getTime() - b.date.getTime());
 }
 
-function pointToCoordinate(value: number, index: number, count: number, maxValue: number): [number, number] {
-  const x = LEFT_PADDING + (index * (CHART_WIDTH - LEFT_PADDING - RIGHT_PADDING)) / Math.max(count - 1, 1);
-  const y = CHART_HEIGHT - BOTTOM_PADDING - (value / maxValue) * (CHART_HEIGHT - TOP_PADDING - BOTTOM_PADDING);
+function pointToCoordinate(
+  value: number,
+  index: number,
+  count: number,
+  maxValue: number,
+): [number, number] {
+  const x =
+    LEFT_PADDING + (index * (CHART_WIDTH - LEFT_PADDING - RIGHT_PADDING)) / Math.max(count - 1, 1);
+  const y =
+    CHART_HEIGHT -
+    BOTTOM_PADDING -
+    (value / maxValue) * (CHART_HEIGHT - TOP_PADDING - BOTTOM_PADDING);
   return [x, y];
 }
 
-function shouldRenderXAxisLabel(points: ChartPoint[], pointIndex: number, forecastStartIndex: number): boolean {
+function shouldRenderXAxisLabel(
+  points: ChartPoint[],
+  pointIndex: number,
+  forecastStartIndex: number,
+  labelStride: number,
+): boolean {
   const point = points[pointIndex];
   if (!point) {
     return false;
   }
 
-  if (pointIndex === points.length - 1) {
+  const isFirstPoint = pointIndex === 0;
+  const isLastPoint = pointIndex === points.length - 1;
+  if (isFirstPoint || isLastPoint) {
     return true;
   }
 
-  const isHistoryPoint = point.type === "history";
-  if (isHistoryPoint) {
-    if (pointIndex === 0) {
+  if (point.type === "history") {
+    const isFinalHistoryPoint = forecastStartIndex > 0 && pointIndex === forecastStartIndex - 1;
+    if (isFinalHistoryPoint) {
       return true;
     }
 
-    const month = point.date.getMonth();
-    const isQuarterStart = month % 3 === 0;
-    const isFinalHistoryPoint = forecastStartIndex > 0 && pointIndex === forecastStartIndex - 1;
-    return isQuarterStart || isFinalHistoryPoint;
+    const monthsFromStart =
+      (point.date.getFullYear() - points[0].date.getFullYear()) * 12 +
+      (point.date.getMonth() - points[0].date.getMonth());
+
+    return monthsFromStart % labelStride === 0;
   }
 
-  const previousForecastPoint = points.slice(0, pointIndex).reverse().find((candidate) => candidate.type === "forecast");
+  const previousForecastPoint = points
+    .slice(0, pointIndex)
+    .reverse()
+    .find((candidate) => candidate.type === "forecast");
   if (!previousForecastPoint) {
     return true;
   }
@@ -129,13 +150,14 @@ function shouldRenderXAxisLabel(points: ChartPoint[], pointIndex: number, foreca
     return false;
   }
 
-  const shouldThinFarRightLabels = pointIndex > points.length - 7;
+  const forecastStride = Math.max(1, Math.floor(labelStride / 2));
+  const monthsFromForecastStart =
+    forecastStartIndex >= 0
+      ? (point.date.getFullYear() - points[forecastStartIndex].date.getFullYear()) * 12 +
+        (point.date.getMonth() - points[forecastStartIndex].date.getMonth())
+      : 0;
 
-  if (shouldThinFarRightLabels) {
-    return point.date.getMonth() % 2 === 0;
-  }
-
-  return true;
+  return monthsFromForecastStart % forecastStride === 0;
 }
 
 function buildPath(points: ChartPoint[], maxValue: number, type: PointType): string {
@@ -154,7 +176,9 @@ function buildPath(points: ChartPoint[], maxValue: number, type: PointType): str
 function buildConfidenceBand(points: ChartPoint[], maxValue: number): string | null {
   const forecast = points
     .map((point, index) => ({ point, index }))
-    .filter(({ point }) => point.type === "forecast" && point.lower !== null && point.upper !== null);
+    .filter(
+      ({ point }) => point.type === "forecast" && point.lower !== null && point.upper !== null,
+    );
 
   if (forecast.length < 2) {
     return null;
@@ -191,19 +215,38 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
   const minForecastIndex = points.findIndex((point) => point.type === "forecast");
   const forecastStartX =
     minForecastIndex >= 0
-      ? LEFT_PADDING + (minForecastIndex * (CHART_WIDTH - LEFT_PADDING - RIGHT_PADDING)) / Math.max(points.length - 1, 1)
+      ? LEFT_PADDING +
+        (minForecastIndex * (CHART_WIDTH - LEFT_PADDING - RIGHT_PADDING)) /
+          Math.max(points.length - 1, 1)
       : null;
 
   const confidenceBandPath = buildConfidenceBand(points, maxValue);
-  const positionedPoints = points.map((point, index) => ({ point, index, coordinates: pointToCoordinate(point.visits, index, points.length, maxValue) }));
+  const positionedPoints = points.map((point, index) => ({
+    point,
+    index,
+    coordinates: pointToCoordinate(point.visits, index, points.length, maxValue),
+  }));
   const activePoint = activeIndex !== null ? positionedPoints[activeIndex] : null;
+  const horizontalDrawingWidth = CHART_WIDTH - LEFT_PADDING - RIGHT_PADDING;
+  const estimatedLabelCount = Math.max(2, Math.floor(horizontalDrawingWidth / MIN_X_LABEL_SPACING));
+  const historyPointsCount = minForecastIndex > 0 ? minForecastIndex : points.length;
+  const historyLabelStride = Math.max(2, Math.ceil(historyPointsCount / estimatedLabelCount));
+  const shouldRotateXAxisLabels = points.length > estimatedLabelCount;
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <h2 className="text-lg font-semibold text-slate-900">Historical + Forecast Visits</h2>
-      <p className="mt-1 text-xs text-slate-500">Historical monthly visitation shown as weekly-equivalent values with forecasted weekly trends for the selected park.</p>
+      <p className="mt-1 text-xs text-slate-500">
+        Historical monthly visitation shown as weekly-equivalent values with forecasted weekly
+        trends for the selected park.
+      </p>
       <div className="mt-3 rounded-md border border-slate-100 p-2">
-        <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} className="h-72 w-full" role="img" aria-label="Historical and forecast visits line chart">
+        <svg
+          viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+          className="h-[420px] w-full"
+          role="img"
+          aria-label="Historical and forecast visits line chart"
+        >
           <line
             x1={LEFT_PADDING}
             y1={CHART_HEIGHT - BOTTOM_PADDING}
@@ -212,7 +255,14 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
             className="stroke-slate-300"
             strokeWidth="1"
           />
-          <line x1={LEFT_PADDING} y1={TOP_PADDING} x2={LEFT_PADDING} y2={CHART_HEIGHT - BOTTOM_PADDING} className="stroke-slate-300" strokeWidth="1" />
+          <line
+            x1={LEFT_PADDING}
+            y1={TOP_PADDING}
+            x2={LEFT_PADDING}
+            y2={CHART_HEIGHT - BOTTOM_PADDING}
+            className="stroke-slate-300"
+            strokeWidth="1"
+          />
 
           {forecastStartX ? (
             <rect
@@ -234,9 +284,20 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
             Visits
           </text>
 
-          {confidenceBandPath ? <path d={confidenceBandPath} className="fill-emerald-500/15" /> : null}
-          <path d={buildPath(points, maxValue, "history")} className="fill-none stroke-slate-600" strokeWidth="2.5" />
-          <path d={buildPath(points, maxValue, "forecast")} className="fill-none stroke-emerald-600" strokeWidth="2.5" strokeDasharray="7 5" />
+          {confidenceBandPath ? (
+            <path d={confidenceBandPath} className="fill-emerald-500/15" />
+          ) : null}
+          <path
+            d={buildPath(points, maxValue, "history")}
+            className="fill-none stroke-slate-600"
+            strokeWidth="2.5"
+          />
+          <path
+            d={buildPath(points, maxValue, "forecast")}
+            className="fill-none stroke-emerald-600"
+            strokeWidth="2.5"
+            strokeDasharray="7 5"
+          />
 
           {forecastStartX ? (
             <>
@@ -249,14 +310,18 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
                 strokeWidth="1"
                 strokeDasharray="3 4"
               />
-              <text x={Math.min(forecastStartX + FORECAST_LABEL_OFFSET, CHART_WIDTH - RIGHT_PADDING)} y={TOP_PADDING + 18} className="fill-slate-500 text-[10px]">
+              <text
+                x={Math.min(forecastStartX + FORECAST_LABEL_OFFSET, CHART_WIDTH - RIGHT_PADDING)}
+                y={TOP_PADDING + 18}
+                className="fill-slate-500 text-[10px]"
+              >
                 Forecast begins
               </text>
             </>
           ) : null}
 
           {positionedPoints.map(({ point, index, coordinates }, pointIndex) => {
-            if (!shouldRenderXAxisLabel(points, pointIndex, minForecastIndex)) {
+            if (!shouldRenderXAxisLabel(points, pointIndex, minForecastIndex, historyLabelStride)) {
               return null;
             }
 
@@ -265,9 +330,15 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
               <text
                 key={`${point.label}-${index}`}
                 x={x}
-                y={CHART_HEIGHT - 8}
-                textAnchor={pointIndex === 0 ? "start" : pointIndex === points.length - 1 ? "end" : "middle"}
-                transform={`rotate(${X_AXIS_LABEL_ROTATION_DEGREES} ${x} ${CHART_HEIGHT - 8})`}
+                y={CHART_HEIGHT - 12}
+                textAnchor={
+                  pointIndex === 0 ? "start" : pointIndex === points.length - 1 ? "end" : "middle"
+                }
+                transform={
+                  shouldRotateXAxisLabels
+                    ? `rotate(${X_AXIS_LABEL_ROTATION_DEGREES} ${x} ${CHART_HEIGHT - 12})`
+                    : undefined
+                }
                 className="fill-slate-500 text-[11px]"
               >
                 {point.label}
@@ -292,7 +363,12 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
 
           {activePoint ? (
             <>
-              <circle cx={activePoint.coordinates[0]} cy={activePoint.coordinates[1]} r={3.2} className="fill-slate-900" />
+              <circle
+                cx={activePoint.coordinates[0]}
+                cy={activePoint.coordinates[1]}
+                r={3.2}
+                className="fill-slate-900"
+              />
               <foreignObject
                 x={Math.min(activePoint.coordinates[0] + 10, CHART_WIDTH - RIGHT_PADDING - 180)}
                 y={Math.max(activePoint.coordinates[1] - 66, TOP_PADDING)}
@@ -300,12 +376,17 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
                 height={94}
               >
                 <div className="rounded-md border border-slate-200 bg-white/95 px-2 py-1 text-[11px] leading-4 text-slate-700 shadow-lg backdrop-blur-sm">
-                  <p className="font-medium text-slate-900">{formatWeekRange(activePoint.point.date, activePoint.point.endDate)}</p>
+                  <p className="font-medium text-slate-900">
+                    {formatWeekRange(activePoint.point.date, activePoint.point.endDate)}
+                  </p>
                   <p>{activePoint.point.displayLabel}</p>
                   <p>Visits: {formatVisits(activePoint.point.visits)}</p>
-                  {activePoint.point.type === "forecast" && activePoint.point.lower !== null && activePoint.point.upper !== null ? (
+                  {activePoint.point.type === "forecast" &&
+                  activePoint.point.lower !== null &&
+                  activePoint.point.upper !== null ? (
                     <p>
-                      Range: {formatVisits(activePoint.point.lower)} - {formatVisits(activePoint.point.upper)}
+                      Range: {formatVisits(activePoint.point.lower)} -{" "}
+                      {formatVisits(activePoint.point.upper)}
                     </p>
                   ) : null}
                 </div>
@@ -319,14 +400,17 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
           <span className="h-0.5 w-4 bg-slate-600" /> Historical (weekly-equivalent)
         </span>
         <span className="inline-flex items-center gap-1">
-          <span className="h-0.5 w-4 border-t-2 border-dashed border-emerald-600" /> Forecast (weekly)
+          <span className="h-0.5 w-4 border-t-2 border-dashed border-emerald-600" /> Forecast
+          (weekly)
         </span>
         {confidenceBandPath ? (
           <span className="inline-flex items-center gap-1">
             <span className="h-2 w-4 rounded-sm bg-emerald-500/20" /> Forecast confidence range
           </span>
         ) : null}
-        <span className="ml-auto text-slate-500">Peak displayed weekly volume: {formatVisits(maxValue)}</span>
+        <span className="ml-auto text-slate-500">
+          Peak displayed weekly volume: {formatVisits(maxValue)}
+        </span>
       </div>
     </section>
   );

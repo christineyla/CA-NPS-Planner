@@ -56,38 +56,88 @@ export function ParkAnalyticsContent({ data }: ParkAnalyticsContentProps) {
           <ScoreCard
             label="Crowding Score"
             score={currentWeek.crowd_score}
-            accentClass={currentWeek.crowd_score <= 35 ? "text-sky-700" : currentWeek.crowd_score <= 70 ? "text-amber-700" : "text-rose-700"}
-            backgroundClass={currentWeek.crowd_score <= 35 ? "bg-sky-50" : currentWeek.crowd_score <= 70 ? "bg-amber-50" : "bg-rose-50"}
-            borderClass={currentWeek.crowd_score <= 35 ? "border-sky-200" : currentWeek.crowd_score <= 70 ? "border-amber-200" : "border-rose-200"}
+            accentClass={
+              currentWeek.crowd_score <= 35
+                ? "text-sky-700"
+                : currentWeek.crowd_score <= 70
+                  ? "text-amber-700"
+                  : "text-rose-700"
+            }
+            backgroundClass={
+              currentWeek.crowd_score <= 35
+                ? "bg-sky-50"
+                : currentWeek.crowd_score <= 70
+                  ? "bg-amber-50"
+                  : "bg-rose-50"
+            }
+            borderClass={
+              currentWeek.crowd_score <= 35
+                ? "border-sky-200"
+                : currentWeek.crowd_score <= 70
+                  ? "border-amber-200"
+                  : "border-rose-200"
+            }
             subtitle={scoreLabels?.crowd}
           />
           <ScoreCard
             label="Weather Score"
             score={currentWeek.weather_score}
-            accentClass={currentWeek.weather_score >= 75 ? "text-emerald-700" : currentWeek.weather_score >= 55 ? "text-sky-700" : "text-amber-700"}
-            backgroundClass={currentWeek.weather_score >= 75 ? "bg-emerald-50" : currentWeek.weather_score >= 55 ? "bg-sky-50" : "bg-amber-50"}
-            borderClass={currentWeek.weather_score >= 75 ? "border-emerald-200" : currentWeek.weather_score >= 55 ? "border-sky-200" : "border-amber-200"}
+            accentClass={
+              currentWeek.weather_score >= 75
+                ? "text-emerald-700"
+                : currentWeek.weather_score >= 55
+                  ? "text-sky-700"
+                  : "text-amber-700"
+            }
+            backgroundClass={
+              currentWeek.weather_score >= 75
+                ? "bg-emerald-50"
+                : currentWeek.weather_score >= 55
+                  ? "bg-sky-50"
+                  : "bg-amber-50"
+            }
+            borderClass={
+              currentWeek.weather_score >= 75
+                ? "border-emerald-200"
+                : currentWeek.weather_score >= 55
+                  ? "border-sky-200"
+                  : "border-amber-200"
+            }
             subtitle={scoreLabels?.weather}
           />
           <ScoreCard
             label="Trip Score"
             score={currentWeek.trip_score}
-            accentClass={currentWeek.trip_score >= 75 ? "text-emerald-700" : currentWeek.trip_score >= 55 ? "text-sky-700" : "text-amber-700"}
-            backgroundClass={currentWeek.trip_score >= 75 ? "bg-emerald-50" : currentWeek.trip_score >= 55 ? "bg-sky-50" : "bg-amber-50"}
-            borderClass={currentWeek.trip_score >= 75 ? "border-emerald-200" : currentWeek.trip_score >= 55 ? "border-sky-200" : "border-amber-200"}
+            accentClass={
+              currentWeek.trip_score >= 75
+                ? "text-emerald-700"
+                : currentWeek.trip_score >= 55
+                  ? "text-sky-700"
+                  : "text-amber-700"
+            }
+            backgroundClass={
+              currentWeek.trip_score >= 75
+                ? "bg-emerald-50"
+                : currentWeek.trip_score >= 55
+                  ? "bg-sky-50"
+                  : "bg-amber-50"
+            }
+            borderClass={
+              currentWeek.trip_score >= 75
+                ? "border-emerald-200"
+                : currentWeek.trip_score >= 55
+                  ? "border-sky-200"
+                  : "border-amber-200"
+            }
             subtitle={scoreLabels?.trip}
           />
         </section>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <HistoricalForecastChart forecast={data.forecast} history={data.history} />
-        </div>
-        <div className="lg:col-span-1">
-          <BestWeeksList weeks={data.bestWeeks.top_weeks} />
-        </div>
-      </div>
+      <section className="space-y-4">
+        <HistoricalForecastChart forecast={data.forecast} history={data.history} />
+        <BestWeeksList weeks={data.bestWeeks.top_weeks} />
+      </section>
 
       <CrowdCalendar calendar={data.calendar} forecast={data.forecast} />
     </div>
