@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 from app import models  # noqa: F401
 from app.db import Base
 from app.jobs.forecast_generation import ForecastGenerationJob
+from app.services.forecasting.baseline_prophet import BaselineProphetForecaster
 from app.services.forecasting import ForecastRunner, WeeklyDisaggregator
 from app.services.seed_data import FORECAST_WEEKS, PARK_CONFIGS, seed_database
 
@@ -72,6 +73,55 @@ def test_forecast_runner_outputs_park_specific_26_week_forecast() -> None:
     assert output["park_id"].nunique() == 1
     assert output["park_id"].iloc[0] == 99
     assert (output["predicted_visits"] >= 0).all()
+
+
+def test_visitation_history_normalization_preserves_non_zero_monthly_signal() -> None:
+    forecaster = BaselineProphetForecaster()
+    history = pd.DataFrame(
+        {
+            "month_start": pd.to_datetime(["2024-01-01", "2024-01-15", "2024-02-01"]),
+            "visits": [1200, 300, 800],
+        }
+    )
+
+    normalized = forecaster._normalized_history(history)
+
+    assert normalized.loc[normalized["month_start"] == pd.Timestamp("2024-01-01"), "visits"].iloc[0] == 1500
+    assert normalized["visits"].sum() == 2300
+
+
+def test_prophet_training_frame_contains_ds_y_and_24_months() -> None:
+    forecaster = BaselineProphetForecaster(min_training_months=24)
+    months = pd.date_range(start="2022-01-01", periods=36, freq="MS")
+    history = pd.DataFrame({"month_start": months, "visits": [8000 + i * 75 for i in range(36)]})
+
+    training = forecaster._training_frame(history)
+
+    assert list(training.columns) == ["ds", "y"]
+    assert len(training) == 24
+    assert (training["y"] > 0).all()
+
+
+def test_forecast_runner_not_all_zero_with_stale_history_and_future_start() -> None:
+    months = pd.date_range(start="2021-01-01", periods=36, freq="MS")
+    history = pd.DataFrame(
+        {
+            "month_start": months,
+            "visits": [40000 + ((i % 12) * 3000) + (i * 80) for i in range(len(months))],
+        }
+    )
+
+    output = ForecastRunner().run_for_park(
+        park_id=12,
+        monthly_history=history,
+        horizon_weeks=26,
+        forecast_start_date=date(2026, 1, 5),
+    )
+
+    assert len(output) == 26
+    assert output["predicted_visits"].sum() > 0
+    assert (output["predicted_visits"] > 0).any()
+    assert len(set(output["predicted_visits"].tolist())) > 1
 
 
 
@@ -222,7 +272,7 @@ def test_forecast_values_not_constant_for_seasonal_park(seeded_session: Session)
     assert len(set(predicted_values)) > 1
 
 
-def test_crowd_scores_vary_and_increase_into_summer_for_yosemite(seeded_session: Session) -> None:
+def test_yosemite_forecast_increases_into_summer_months(seeded_session: Session) -> None:
     seeded_session.query(models.ParkVisitationForecast).delete()
     seeded_session.query(models.CrowdCalendar).delete()
     seeded_session.commit()
@@ -236,13 +286,13 @@ def test_crowd_scores_vary_and_increase_into_summer_for_yosemite(seeded_session:
         .order_by(models.ParkVisitationForecast.week_start.asc())
         .all()
     )
-    crowd_scores = [row.crowd_score for row in yosemite_forecasts]
+    predicted_visits = [row.predicted_visits for row in yosemite_forecasts]
 
-    assert len(set(crowd_scores)) > 1
-    assert max(crowd_scores) > min(crowd_scores)
+    assert len(set(predicted_visits)) > 1
+    assert max(predicted_visits) > min(predicted_visits)
 
-    early_window_peak = max(crowd_scores[:8])
-    summer_window_peak = max(crowd_scores[12:20])
+    early_window_peak = max(predicted_visits[:8])
+    summer_window_peak = max(predicted_visits[12:20])
     assert summer_window_peak > early_window_peak
 
 
