@@ -30,8 +30,10 @@ const RIGHT_PADDING = 44;
 const TOP_PADDING = 24;
 const FORECAST_LABEL_OFFSET = 12;
 const BOTTOM_PADDING = 72;
-const X_AXIS_LABEL_ROTATION_DEGREES = -24;
-const MIN_X_LABEL_SPACING = 72;
+const X_AXIS_LABEL_ROTATION_DEGREES = -18;
+const MIN_X_LABEL_SPACING = 88;
+const MIN_FORECAST_WIDTH_RATIO = 0.16;
+const MAX_FORECAST_WIDTH_RATIO = 0.26;
 
 function formatLabel(date: Date): string {
   return date.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
@@ -89,14 +91,63 @@ function toChartPoints(history: VisitationHistoryPoint[], forecast: ForecastWeek
   return [...historyPoints, ...forecastPoints].sort((a, b) => a.date.getTime() - b.date.getTime());
 }
 
+function resolveForecastWidthRatio(points: ChartPoint[], forecastStartIndex: number): number {
+  if (forecastStartIndex <= 0 || forecastStartIndex >= points.length - 1) {
+    return MIN_FORECAST_WIDTH_RATIO;
+  }
+
+  const firstHistory = points[0]?.date.getTime();
+  const firstForecast = points[forecastStartIndex]?.date.getTime();
+  const lastForecast = points[points.length - 1]?.date.getTime();
+
+  if (!firstHistory || !firstForecast || !lastForecast || firstForecast <= firstHistory) {
+    return MIN_FORECAST_WIDTH_RATIO;
+  }
+
+  const historicalDuration = firstForecast - firstHistory;
+  const forecastDuration = Math.max(lastForecast - firstForecast, 1);
+  const durationRatio = forecastDuration / historicalDuration;
+
+  return Math.min(
+    MAX_FORECAST_WIDTH_RATIO,
+    Math.max(MIN_FORECAST_WIDTH_RATIO, durationRatio + 0.04),
+  );
+}
+
+function pointXCoordinate(
+  index: number,
+  count: number,
+  forecastStartIndex: number,
+  forecastWidthRatio: number,
+): number {
+  const drawableWidth = CHART_WIDTH - LEFT_PADDING - RIGHT_PADDING;
+
+  if (forecastStartIndex <= 0 || forecastStartIndex >= count) {
+    return LEFT_PADDING + (index * drawableWidth) / Math.max(count - 1, 1);
+  }
+
+  const historyCount = forecastStartIndex;
+  const forecastCount = count - forecastStartIndex;
+  const forecastWidth = drawableWidth * forecastWidthRatio;
+  const historyWidth = drawableWidth - forecastWidth;
+
+  if (index < forecastStartIndex) {
+    return LEFT_PADDING + (index * historyWidth) / Math.max(historyCount - 1, 1);
+  }
+
+  const forecastIndex = index - forecastStartIndex;
+  return LEFT_PADDING + historyWidth + (forecastIndex * forecastWidth) / Math.max(forecastCount - 1, 1);
+}
+
 function pointToCoordinate(
   value: number,
   index: number,
   count: number,
   maxValue: number,
+  forecastStartIndex: number,
+  forecastWidthRatio: number,
 ): [number, number] {
-  const x =
-    LEFT_PADDING + (index * (CHART_WIDTH - LEFT_PADDING - RIGHT_PADDING)) / Math.max(count - 1, 1);
+  const x = pointXCoordinate(index, count, forecastStartIndex, forecastWidthRatio);
   const y =
     CHART_HEIGHT -
     BOTTOM_PADDING -
@@ -108,7 +159,6 @@ function shouldRenderXAxisLabel(
   points: ChartPoint[],
   pointIndex: number,
   forecastStartIndex: number,
-  labelStride: number,
 ): boolean {
   const point = points[pointIndex];
   if (!point) {
@@ -122,16 +172,18 @@ function shouldRenderXAxisLabel(
   }
 
   if (point.type === "history") {
-    const isFinalHistoryPoint = forecastStartIndex > 0 && pointIndex === forecastStartIndex - 1;
-    if (isFinalHistoryPoint) {
-      return true;
-    }
-
     const monthsFromStart =
       (point.date.getFullYear() - points[0].date.getFullYear()) * 12 +
       (point.date.getMonth() - points[0].date.getMonth());
 
-    return monthsFromStart % labelStride === 0;
+    const isQuarterStart = monthsFromStart % 3 === 0;
+    if (!isQuarterStart) {
+      return false;
+    }
+
+    const isNearForecastBoundary =
+      forecastStartIndex > 0 && pointIndex >= Math.max(0, forecastStartIndex - 2);
+    return !isNearForecastBoundary;
   }
 
   const previousForecastPoint = points
@@ -150,30 +202,47 @@ function shouldRenderXAxisLabel(
     return false;
   }
 
-  const forecastStride = Math.max(1, Math.floor(labelStride / 2));
   const monthsFromForecastStart =
     forecastStartIndex >= 0
       ? (point.date.getFullYear() - points[forecastStartIndex].date.getFullYear()) * 12 +
         (point.date.getMonth() - points[forecastStartIndex].date.getMonth())
       : 0;
 
-  return monthsFromForecastStart % forecastStride === 0;
+  return monthsFromForecastStart % 2 === 0;
 }
 
-function buildPath(points: ChartPoint[], maxValue: number, type: PointType): string {
+function buildPath(
+  points: ChartPoint[],
+  maxValue: number,
+  type: PointType,
+  forecastStartIndex: number,
+  forecastWidthRatio: number,
+): string {
   const filtered = points
     .map((point, index) => ({ point, index }))
     .filter(({ point }) => point.type === type);
 
   return filtered
     .map(({ point, index }, pathIndex) => {
-      const [x, y] = pointToCoordinate(point.visits, index, points.length, maxValue);
+      const [x, y] = pointToCoordinate(
+        point.visits,
+        index,
+        points.length,
+        maxValue,
+        forecastStartIndex,
+        forecastWidthRatio,
+      );
       return `${pathIndex === 0 ? "M" : "L"}${x} ${y}`;
     })
     .join(" ");
 }
 
-function buildConfidenceBand(points: ChartPoint[], maxValue: number): string | null {
+function buildConfidenceBand(
+  points: ChartPoint[],
+  maxValue: number,
+  forecastStartIndex: number,
+  forecastWidthRatio: number,
+): string | null {
   const forecast = points
     .map((point, index) => ({ point, index }))
     .filter(
@@ -186,7 +255,14 @@ function buildConfidenceBand(points: ChartPoint[], maxValue: number): string | n
 
   const upperPath = forecast
     .map(({ point, index }, pathIndex) => {
-      const [x, y] = pointToCoordinate(point.upper ?? point.visits, index, points.length, maxValue);
+      const [x, y] = pointToCoordinate(
+        point.upper ?? point.visits,
+        index,
+        points.length,
+        maxValue,
+        forecastStartIndex,
+        forecastWidthRatio,
+      );
       return `${pathIndex === 0 ? "M" : "L"}${x} ${y}`;
     })
     .join(" ");
@@ -195,7 +271,14 @@ function buildConfidenceBand(points: ChartPoint[], maxValue: number): string | n
     .slice()
     .reverse()
     .map(({ point, index }) => {
-      const [x, y] = pointToCoordinate(point.lower ?? point.visits, index, points.length, maxValue);
+      const [x, y] = pointToCoordinate(
+        point.lower ?? point.visits,
+        index,
+        points.length,
+        maxValue,
+        forecastStartIndex,
+        forecastWidthRatio,
+      );
       return `L${x} ${y}`;
     })
     .join(" ");
@@ -213,25 +296,34 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
 
   const maxValue = Math.max(...points.map((point) => point.upper ?? point.visits), 1);
   const minForecastIndex = points.findIndex((point) => point.type === "forecast");
+  const forecastWidthRatio = resolveForecastWidthRatio(points, minForecastIndex);
   const forecastStartX =
     minForecastIndex >= 0
-      ? LEFT_PADDING +
-        (minForecastIndex * (CHART_WIDTH - LEFT_PADDING - RIGHT_PADDING)) /
-          Math.max(points.length - 1, 1)
+      ? pointXCoordinate(minForecastIndex, points.length, minForecastIndex, forecastWidthRatio)
       : null;
 
-  const confidenceBandPath = buildConfidenceBand(points, maxValue);
+  const confidenceBandPath = buildConfidenceBand(
+    points,
+    maxValue,
+    minForecastIndex,
+    forecastWidthRatio,
+  );
   const positionedPoints = points.map((point, index) => ({
     point,
     index,
-    coordinates: pointToCoordinate(point.visits, index, points.length, maxValue),
+    coordinates: pointToCoordinate(
+      point.visits,
+      index,
+      points.length,
+      maxValue,
+      minForecastIndex,
+      forecastWidthRatio,
+    ),
   }));
   const activePoint = activeIndex !== null ? positionedPoints[activeIndex] : null;
   const horizontalDrawingWidth = CHART_WIDTH - LEFT_PADDING - RIGHT_PADDING;
   const estimatedLabelCount = Math.max(2, Math.floor(horizontalDrawingWidth / MIN_X_LABEL_SPACING));
-  const historyPointsCount = minForecastIndex > 0 ? minForecastIndex : points.length;
-  const historyLabelStride = Math.max(2, Math.ceil(historyPointsCount / estimatedLabelCount));
-  const shouldRotateXAxisLabels = points.length > estimatedLabelCount;
+  const shouldRotateXAxisLabels = points.length > estimatedLabelCount + 2;
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -288,12 +380,12 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
             <path d={confidenceBandPath} className="fill-emerald-500/15" />
           ) : null}
           <path
-            d={buildPath(points, maxValue, "history")}
+            d={buildPath(points, maxValue, "history", minForecastIndex, forecastWidthRatio)}
             className="fill-none stroke-slate-600"
             strokeWidth="2.5"
           />
           <path
-            d={buildPath(points, maxValue, "forecast")}
+            d={buildPath(points, maxValue, "forecast", minForecastIndex, forecastWidthRatio)}
             className="fill-none stroke-emerald-600"
             strokeWidth="2.5"
             strokeDasharray="7 5"
@@ -321,7 +413,7 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
           ) : null}
 
           {positionedPoints.map(({ point, index, coordinates }, pointIndex) => {
-            if (!shouldRenderXAxisLabel(points, pointIndex, minForecastIndex, historyLabelStride)) {
+            if (!shouldRenderXAxisLabel(points, pointIndex, minForecastIndex)) {
               return null;
             }
 
