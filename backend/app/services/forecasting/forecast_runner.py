@@ -37,13 +37,30 @@ class ForecastRunner:
     ) -> pd.DataFrame:
         """Generate a full 26-week forecast for a specific park."""
 
-        monthly_forecast = self.baseline_forecaster.forecast_monthly(
-            park_id=park_id,
-            monthly_history=monthly_history,
-            periods=max(6, (horizon_weeks // 4) + 1),
-        )
+        normalized_history = monthly_history.copy()
+        normalized_history["month_start"] = pd.to_datetime(normalized_history["month_start"])
+        last_history_month = normalized_history["month_start"].max().to_period("M").to_timestamp()
         disaggregation_start = (
             pd.Timestamp(forecast_start_date) if forecast_start_date is not None else None
+        )
+        start_month = (
+            disaggregation_start.to_period("M").to_timestamp()
+            if disaggregation_start is not None
+            else (last_history_month + pd.offsets.MonthBegin(1))
+        )
+        month_gap = max(
+            0,
+            (start_month.year - last_history_month.year) * 12
+            + (start_month.month - last_history_month.month)
+            - 1,
+        )
+        horizon_months = max(6, (horizon_weeks // 4) + 1)
+        monthly_periods = month_gap + horizon_months
+
+        monthly_forecast = self.baseline_forecaster.forecast_monthly(
+            park_id=park_id,
+            monthly_history=normalized_history,
+            periods=monthly_periods,
         )
         weekly_forecast = self.disaggregator.disaggregate(
             monthly_forecast=monthly_forecast,
