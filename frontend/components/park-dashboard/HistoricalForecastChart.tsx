@@ -25,9 +25,10 @@ interface ChartPoint {
 
 const CHART_WIDTH = 900;
 const CHART_HEIGHT = 260;
-const LEFT_PADDING = 62;
-const RIGHT_PADDING = 62;
+const LEFT_PADDING = 72;
+const RIGHT_PADDING = 72;
 const TOP_PADDING = 20;
+const FORECAST_LABEL_OFFSET = 12;
 const BOTTOM_PADDING = 38;
 const X_AXIS_LABEL_ROTATION_DEGREES = -24;
 
@@ -239,8 +240,16 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
 
           {forecastStartX ? (
             <>
-              <line x1={forecastStartX} y1={TOP_PADDING} x2={forecastStartX} y2={CHART_HEIGHT - BOTTOM_PADDING} className="stroke-slate-400" strokeWidth="1" strokeDasharray="3 4" />
-              <text x={Math.min(forecastStartX + 8, CHART_WIDTH - RIGHT_PADDING)} y={TOP_PADDING + 14} className="fill-slate-500 text-[10px]">
+              <line
+                x1={forecastStartX}
+                y1={TOP_PADDING}
+                x2={forecastStartX}
+                y2={CHART_HEIGHT - BOTTOM_PADDING}
+                className="stroke-slate-400"
+                strokeWidth="1"
+                strokeDasharray="3 4"
+              />
+              <text x={Math.min(forecastStartX + FORECAST_LABEL_OFFSET, CHART_WIDTH - RIGHT_PADDING)} y={TOP_PADDING + 18} className="fill-slate-500 text-[10px]">
                 Forecast begins
               </text>
             </>
@@ -257,7 +266,7 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
                 key={`${point.label}-${index}`}
                 x={x}
                 y={CHART_HEIGHT - 8}
-                textAnchor="middle"
+                textAnchor={pointIndex === 0 ? "start" : pointIndex === points.length - 1 ? "end" : "middle"}
                 transform={`rotate(${X_AXIS_LABEL_ROTATION_DEGREES} ${x} ${CHART_HEIGHT - 8})`}
                 className="fill-slate-500 text-[11px]"
               >
