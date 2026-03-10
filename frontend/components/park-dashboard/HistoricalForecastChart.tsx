@@ -50,6 +50,17 @@ function formatWeekRange(startDate: Date, endDate: Date | null): string {
   })} - ${endDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
 }
 
+function formatTooltipDate(point: ChartPoint): string {
+  if (point.type === "history") {
+    return point.date.toLocaleDateString("en-US", {
+      month: "long",
+      year: "numeric",
+    });
+  }
+
+  return formatWeekRange(point.date, point.endDate);
+}
+
 function getWeeksInMonth(date: Date): number {
   const year = date.getFullYear();
   const month = date.getMonth();
@@ -329,8 +340,8 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <h2 className="text-lg font-semibold text-slate-900">Historical + Forecast Visits</h2>
       <p className="mt-1 text-xs text-slate-500">
-        Historical monthly visitation shown as weekly-equivalent values with forecasted weekly
-        trends for the selected park.
+        Weekly-equivalent historical visitation is shown on the left, with projected weekly
+        visitation trends on the right.
       </p>
       <div className="mt-3 rounded-md border border-slate-100 p-2">
         <svg
@@ -407,7 +418,7 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
                 y={TOP_PADDING + 18}
                 className="fill-slate-500 text-[10px]"
               >
-                Forecast begins
+                Forecast trend starts
               </text>
             </>
           ) : null}
@@ -469,15 +480,17 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
               >
                 <div className="rounded-md border border-slate-200 bg-white/95 px-2 py-1 text-[11px] leading-4 text-slate-700 shadow-lg backdrop-blur-sm">
                   <p className="font-medium text-slate-900">
-                    {formatWeekRange(activePoint.point.date, activePoint.point.endDate)}
+                    {formatTooltipDate(activePoint.point)}
                   </p>
-                  <p>{activePoint.point.displayLabel}</p>
-                  <p>Visits: {formatVisits(activePoint.point.visits)}</p>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-500">
+                    {activePoint.point.displayLabel}
+                  </p>
+                  <p>Weekly visits: {formatVisits(activePoint.point.visits)}</p>
                   {activePoint.point.type === "forecast" &&
                   activePoint.point.lower !== null &&
                   activePoint.point.upper !== null ? (
                     <p>
-                      Range: {formatVisits(activePoint.point.lower)} -{" "}
+                      Forecast range: {formatVisits(activePoint.point.lower)} -{" "}
                       {formatVisits(activePoint.point.upper)}
                     </p>
                   ) : null}
@@ -500,8 +513,9 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
             <span className="h-2 w-4 rounded-sm bg-emerald-500/20" /> Forecast confidence range
           </span>
         ) : null}
-        <span className="ml-auto text-slate-500">
-          Peak displayed weekly volume: {formatVisits(maxValue)}
+        <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-500">
+          <span className="font-medium text-slate-600">Peak weekly volume</span>
+          <span>{formatVisits(maxValue)}</span>
         </span>
       </div>
     </section>
