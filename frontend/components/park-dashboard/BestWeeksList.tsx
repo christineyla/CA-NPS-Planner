@@ -39,19 +39,19 @@ export function BestWeeksList({ weeks }: BestWeeksListProps) {
 
             <p className="mt-2 text-xs text-slate-600">Trip score</p>
             <p className="text-sm font-semibold text-slate-900">
-              {formatScore(week.trip_score)} / 10
+              {formatScore(week.trip_score)}
             </p>
 
             <dl className="mt-2 space-y-1 text-xs">
-              <div className="flex items-start justify-between gap-2">
-                <dt className="text-slate-500">Crowd outlook</dt>
-                <dd className="text-right font-medium text-slate-700">
+              <div className="flex items-start gap-1">
+                <dt className="text-slate-500">Crowd outlook:</dt>
+                <dd className="font-medium text-slate-700">
                   {getCrowdScoreLabel(week.crowd_score)}
                 </dd>
               </div>
-              <div className="flex items-start justify-between gap-2">
-                <dt className="text-slate-500">Weather outlook</dt>
-                <dd className="text-right font-medium text-slate-700">
+              <div className="flex items-start gap-1">
+                <dt className="text-slate-500">Weather outlook:</dt>
+                <dd className="font-medium text-slate-700">
                   {getWeatherScoreLabel(week.weather_score)}
                 </dd>
               </div>

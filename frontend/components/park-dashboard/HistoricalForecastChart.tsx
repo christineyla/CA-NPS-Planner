@@ -14,13 +14,16 @@ type PointType = "history" | "forecast";
 
 interface ChartPoint {
   date: Date;
-  endDate: Date | null;
   label: string;
   visits: number;
-  displayLabel: string;
   type: PointType;
   lower: number | null;
   upper: number | null;
+}
+
+interface TooltipSummary {
+  historical: number | null;
+  predicted: number | null;
 }
 
 const CHART_WIDTH = 900;
@@ -39,26 +42,43 @@ function formatLabel(date: Date): string {
   return date.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 }
 
-function formatWeekRange(startDate: Date, endDate: Date | null): string {
-  if (!endDate) {
-    return startDate.toLocaleDateString("en-US", { month: "short", year: "numeric" });
-  }
-
-  return `${startDate.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  })} - ${endDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+function formatTooltipDate(point: ChartPoint): string {
+  return point.date.toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
 }
 
-function formatTooltipDate(point: ChartPoint): string {
-  if (point.type === "history") {
-    return point.date.toLocaleDateString("en-US", {
-      month: "long",
-      year: "numeric",
-    });
-  }
+function toMonthKey(date: Date): string {
+  return `${date.getFullYear()}-${date.getMonth()}`;
+}
 
-  return formatWeekRange(point.date, point.endDate);
+function buildTooltipSummary(history: VisitationHistoryPoint[], forecast: ForecastWeek[]): Map<string, TooltipSummary> {
+  const summary = new Map<string, TooltipSummary>();
+
+  history.forEach((entry) => {
+    const monthDate = new Date(entry.observation_month);
+    const key = toMonthKey(monthDate);
+    const current = summary.get(key) ?? { historical: null, predicted: null };
+
+    summary.set(key, {
+      ...current,
+      historical: entry.visits,
+    });
+  });
+
+  forecast.forEach((week) => {
+    const weekDate = new Date(week.week_start);
+    const key = toMonthKey(weekDate);
+    const current = summary.get(key) ?? { historical: null, predicted: null };
+
+    summary.set(key, {
+      ...current,
+      predicted: (current.predicted ?? 0) + week.predicted_visits,
+    });
+  });
+
+  return summary;
 }
 
 function getWeeksInMonth(date: Date): number {
@@ -75,10 +95,8 @@ function toChartPoints(history: VisitationHistoryPoint[], forecast: ForecastWeek
 
     return {
       date,
-      endDate: null,
       label: formatLabel(date),
       visits: weeklyEquivalentVisits,
-      displayLabel: "Historical (weekly-equivalent from monthly total)",
       type: "history" as const,
       lower: null,
       upper: null,
@@ -89,10 +107,8 @@ function toChartPoints(history: VisitationHistoryPoint[], forecast: ForecastWeek
     const date = new Date(week.week_start);
     return {
       date,
-      endDate: new Date(week.week_end),
       label: formatLabel(date),
       visits: week.predicted_visits,
-      displayLabel: "Forecast",
       type: "forecast" as const,
       lower: week.predicted_visits_lower ?? null,
       upper: week.predicted_visits_upper ?? null,
@@ -300,6 +316,7 @@ function buildConfidenceBand(
 export function HistoricalForecastChart({ forecast, history }: HistoricalForecastChartProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const points = toChartPoints(history, forecast);
+  const tooltipSummary = buildTooltipSummary(history, forecast);
 
   if (points.length === 0) {
     return null;
@@ -332,6 +349,9 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
     ),
   }));
   const activePoint = activeIndex !== null ? positionedPoints[activeIndex] : null;
+  const activeSummary = activePoint ? tooltipSummary.get(toMonthKey(activePoint.point.date)) : null;
+  const historicalVisits = activeSummary?.historical ?? null;
+  const predictedVisits = activeSummary?.predicted ?? null;
   const horizontalDrawingWidth = CHART_WIDTH - LEFT_PADDING - RIGHT_PADDING;
   const estimatedLabelCount = Math.max(2, Math.floor(horizontalDrawingWidth / MIN_X_LABEL_SPACING));
   const shouldRotateXAxisLabels = points.length > estimatedLabelCount + 2;
@@ -482,17 +502,11 @@ export function HistoricalForecastChart({ forecast, history }: HistoricalForecas
                   <p className="font-medium text-slate-900">
                     {formatTooltipDate(activePoint.point)}
                   </p>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-500">
-                    {activePoint.point.displayLabel}
-                  </p>
-                  <p>Weekly visits: {formatVisits(activePoint.point.visits)}</p>
-                  {activePoint.point.type === "forecast" &&
-                  activePoint.point.lower !== null &&
-                  activePoint.point.upper !== null ? (
-                    <p>
-                      Forecast range: {formatVisits(activePoint.point.lower)} -{" "}
-                      {formatVisits(activePoint.point.upper)}
-                    </p>
+                  {historicalVisits !== null ? (
+                    <p>Historical: {formatVisits(historicalVisits)}</p>
+                  ) : null}
+                  {predictedVisits !== null ? (
+                    <p>Predicted: {formatVisits(predictedVisits)}</p>
                   ) : null}
                 </div>
               </foreignObject>
