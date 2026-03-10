@@ -6,7 +6,6 @@ import { CaliforniaParkMap } from "@/components/home/CaliforniaParkMap";
 import { FeaturedInsightCard } from "@/components/home/FeaturedInsightCard";
 import { ParkAnalyticsContent } from "@/components/park-dashboard/ParkAnalyticsContent";
 import { formatDateRange, formatScore } from "@/lib/formatters";
-import { getValidationExportUrl } from "@/lib/parks-api";
 import { ForecastWeek, ParkDashboardData, ParkListItem, ParksMapDataItem } from "@/types/park-dashboard";
 
 interface WeeklyInsight {
@@ -193,20 +192,6 @@ export function HomeDashboard({ parks, mapData, dashboardData }: HomeDashboardPr
           </div>
 
           <CaliforniaParkMap parks={mapData} selectedParkId={selectedParkId} onSelectPark={setSelectedParkId} />
-        </section>
-
-
-        <section className="rounded-xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-900">Temporary validation export</h2>
-          <p className="mt-1 text-sm text-slate-700">
-            Temporary QA tool: download the currently loaded visitation, weather, and forecast datasets with available provenance fields.
-          </p>
-          <a
-            href={getValidationExportUrl()}
-            className="mt-4 inline-flex items-center rounded-md border border-amber-400 bg-white px-4 py-2 text-sm font-medium text-slate-800 transition hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
-          >
-            Download validation bundle (JSON)
-          </a>
         </section>
 
         <section

@@ -3,7 +3,6 @@ import { getScoreCardLabels } from "@/lib/scoreLabels";
 import { ParkDashboardData } from "@/types/park-dashboard";
 
 import { AccessibilityDetailsModal } from "./AccessibilityDetailsModal";
-import { AlertBanner } from "./AlertBanner";
 import { BestWeeksList } from "./BestWeeksList";
 import { CrowdCalendar } from "./CrowdCalendar";
 import { HistoricalForecastChart } from "./HistoricalForecastChart";
@@ -20,8 +19,6 @@ export function ParkAnalyticsContent({ data }: ParkAnalyticsContentProps) {
 
   return (
     <div className="space-y-4">
-      <AlertBanner alerts={data.alerts} />
-
       <div className="grid gap-4 lg:grid-cols-[2fr,1fr]">
         <ParkSummaryPanel park={data.park} />
         <section
